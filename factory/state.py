@@ -11,7 +11,7 @@ import json
 import secrets
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import List, Optional
 
 from .util import load_json, now_utc_iso, save_json
 

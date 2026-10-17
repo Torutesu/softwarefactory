@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import List, Optional
+from typing import List
 
 from .state import Factory, Mission
 from .util import load_json, load_text, save_text, tail
