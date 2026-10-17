@@ -54,11 +54,44 @@ def _unclaimed_seeds(factory: Factory) -> list:
     return [d.name for d in dirs if (d / "seed.md").exists() and d.name not in claimed]
 
 
+def _norm_topic(s: str) -> str:
+    """タイトル/Seed名を比較用に正規化する ('AUTO ' 接頭辞も落とす)。"""
+    from .util import slugify
+
+    t = slugify(s or "")
+    return t[len("auto-"):] if t.startswith("auto-") else t
+
+
+def _dup_matches(factory: Factory, name: str, threshold: float) -> list:
+    """既出 Seed / ミッションタイトルと類似する候補を返す (intake 重複ゲート)。
+
+    類似判定は difflib (完全一致 + 近い綴り)。外部インデックスは参照しないので、
+    「ローカルに情報が無い = 未着手」とは *限らない* → 一致しない場合も
+    作成を止めないが、一致した場合は必ず人間に回す (fail-safe)。
+    """
+    import difflib
+
+    st = factory.state()
+    missions = st.get("missions") or {}
+    claimed = sorted({str(m.get("seed")) for m in missions.values() if m.get("seed")})
+    titles = sorted({_norm_topic(str(m.get("title") or "")) for m in missions.values()
+                     if _norm_topic(str(m.get("title") or ""))})
+    me = _norm_topic(name)
+    matches = []
+    for cand in claimed:
+        if difflib.SequenceMatcher(None, me, _norm_topic(cand)).ratio() >= threshold:
+            matches.append(f"seed:{cand}")
+    for cand in titles:
+        if difflib.SequenceMatcher(None, me, cand).ratio() >= threshold:
+            matches.append(f"mission:{cand}")
+    return sorted(set(matches))
+
+
 # ---------------------------------------------------------------------------
 # 各段
 # ---------------------------------------------------------------------------
 def step_intake(factory: Factory, cfg: Config, dry_run: bool) -> dict:
-    """未割当 Seed → ミッション自動作成 (level>=3)。"""
+    """未割当 Seed → ミッション自動作成 (level>=3)。重複の疑いは人間に回す。"""
     if cfg.autonomy_level < 3:
         return {"skipped": "autonomy_level < 3"}
     seeds = _unclaimed_seeds(factory)
@@ -69,7 +102,24 @@ def step_intake(factory: Factory, cfg: Config, dry_run: bool) -> dict:
     escalations = []
     if not project:
         return {"created": [], "escalate": "intake_skip: autopilot_project/project 未確定"}
+    thr = float(getattr(cfg, "intake_dup_threshold", 0.85) or 0)
     for name in seeds:
+        if thr > 0:
+            # Intake 重複ゲート: 既出 Seed/ミッションと類似した仕事は作らず人間に見せる
+            try:
+                dups = _dup_matches(factory, name, thr)
+            except Exception as e:  # noqa — 判定不能のときは作らない
+                escalations.append(f"{name}: 重複チェック失敗のため自動作成を見送り ({e})")
+                continue
+            if dups:
+                if dry_run:
+                    created.append(f"(dry) {name} (dup-suspect)")
+                    continue
+                escalations.append(
+                    f"{name}: 既出と類疑似い (match={', '.join(dups[:2])}) — "
+                    "自動作成を見送り。重複でなければ手動で mission new してください")
+                factory.event("intake_dup_suspect", name)
+                continue
         if dry_run:
             created.append(f"(dry) {name}")
             continue
@@ -82,7 +132,10 @@ def step_intake(factory: Factory, cfg: Config, dry_run: bool) -> dict:
         )
         factory.event("tick_intake", f"{m.id} seed={name}")
         created.append(m.id)
-    return {"created": created}
+    out = {"created": created}
+    if escalations:
+        out["escalate"] = escalations
+    return out
 
 
 def step_execute(factory: Factory, cfg: Config, dry_run: bool) -> dict:
@@ -139,6 +192,10 @@ def step_execute(factory: Factory, cfg: Config, dry_run: bool) -> dict:
 def step_deliver(factory: Factory, cfg: Config, dry_run: bool) -> dict:
     """完了ミッションの自動出荷 (merge + canary)。level>=2。
 
+    マージゲートは 2 段構え:
+      1. ミッションの risk (人間指定の high は常に人間へ)
+      2. 差分の blast radius ティア (mergegate) — ポリシーが auto のティアだけ自動マージ
+
     カナリア失敗→修復ミッション→出荷…の往復が無限に続かないよう、修復チェーン
     (`repair-of:<id>` のつながり) の深度が max_repair_rounds を超えたら手動扱いにする。
     """
@@ -154,22 +211,32 @@ def step_deliver(factory: Factory, cfg: Config, dry_run: bool) -> dict:
         if _repair_depth(factory, m) > _max_repairs(cfg):
             escalations.append(f"{m.id}: 修復ラウンド上限 ({_max_repairs(cfg)}) 到達 — 人間確認を推奨")
             continue
-        if dry_run:
-            merged.append(f"(dry) {m.id}")
-            canaries.append(f"(dry) {m.id}")
-            continue
         repo = _repo_path(factory, m)
         wt = factory.worktree(m.id)
         if gitx.status_porcelain(wt):
             escalations.append(f"{m.id}: worktree に未コミット変更がありマージ中断")
             continue
-        r = gitx.merge_squash(repo, f"factory/{m.id}", f"factory: {m.id} {m.title}")
+        # --- Merge gate: blast radius ティア ------------------------------
+        from . import mergegate
+
+        cls = mergegate.classify(cfg, repo, f"factory/{m.id}", m)
+        tier = cls["tier"]
+        if mergegate.policy_for(cfg, tier) != "auto":
+            escalations.append(
+                f"{m.id}: merge gate ({tier}) — {mergegate.describe(cls)}. "
+                f"{cls['review']}。確認後に `factory merge {m.id} --yes`")
+            continue
+        if dry_run:
+            merged.append(f"(dry) {m.id} [{tier}]")
+            canaries.append(f"(dry) {m.id}")
+            continue
+        r = gitx.merge_squash(repo, f"factory/{m.id}", mergegate.merge_message(m))
         if r.code != 0:
             escalations.append(f"{m.id}: マージ失敗 {(r.err or r.out)[-200:]}")
             continue
         gitx.remove_worktree(repo, wt)
         m.status = "done"
-        m.notes = (m.notes + "\n" if m.notes else "") + "merged to main"
+        m.notes = (m.notes + "\n" if m.notes else "") + f"merged to main (tier: {tier})"
         factory.save_mission(m)
         factory.event("mission_merged", m.id)
         merged.append(m.id)

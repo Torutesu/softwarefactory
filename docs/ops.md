@@ -107,14 +107,30 @@ listener のログは `.factory/listener.log`、取り込み履歴は state.json
 
 ## マージ後: カナリア検証と PR
 
+`merge` の前にはマージゲート (blast radius ティア) が走ります:
+
 ```bash
-bin/factory merge M... --yes
+bin/factory merge M...                 # ティアと推奨レビューを表示して確認
+bin/factory merge M... --yes           # 人間の判断として確定 (behavioral/sensitive は明示的な意思表示)
 bin/factory canary M...            # main 先頭を一時 worktree で build/test/シナリオ再実行
 bin/factory canary M... --fix --run-complete
 #   FAIL 時: main 上の該当 squash コミットを revert → 失敗要約を Seed 化 →
 #   再ミッション作成 (priority=1) → 即実行
 bin/factory pr M...                # origin + gh があれば PR、無ければ reports/pr-draft.md
 ```
+
+ティアの判定 (`docs/design.md` の対応表を参照):
+
+| ティア | 例 | 自動マージ |
+|---|---|---|
+| mechanical | test/docs/バージョンのみ | 可 |
+| scoped | 50 行以下 (`small_change_lines`) | 可 |
+| behavioral | それより大きい差分 / greenfield | 不可 (人間レビュー) |
+| sensitive | auth/決済等の `sensitive_paths` を含む | 不可 (領域オーナー) |
+
+tick の自動出荷 (`factory tick`, level>=2) はティアの `merge_policy` が `auto` のときのみマージし、
+それ以外は `needs_human` に「merge gate」エントリを積みます。マージコミットと PR には
+`Assisted-by:` トレーラが付きます (`Signed-off-by` は人間の判断なので付けない)。
 
 カナリアはマージが原因で main が壊れた場合の早期発見・自動ロールバック用。
 revert は未コミット変更があると中止する (安全第一)。main が既に revert 済みなら
@@ -188,3 +204,4 @@ failed は再実行可 (work の変更は残る)
 
 - done の後も `validate` や `run` での再検証が可能 (`run` は done をスキップ)
 - merge は worktree ブランチ `factory/<id>` を main に squash して worktree を掃除
+  (コミットメッセージに `Assisted-by:` トレーラが付く)

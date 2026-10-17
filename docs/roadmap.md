@@ -41,6 +41,28 @@
 - **ダッシュボード強化**: usage 窓 / canary / needs_human を `status --watch` に表示
 - **複数リポジトリ横断の依存解消**: ミッション間の順序制約 (DAG)
 
+## 外部記事から得た観点 (2026-10: Firecrawl「How to Build an AI Software Factory」)
+
+上記次候補に加え、同記事で示された観点のうち未実装のもの。
+
+- **Live web コンテキスト**: リポジトリだけでは分からない事実 (依存の breaking change・
+  非推奨化・status page) を intake/検証に供給する。URL `ingest` はあるが、
+  ワーカー実行中の参照は `disallowed_tools` で WebSearch を切っている。用途限定
+  (spec/holdout セッションのみ許可する等) で開けるか検討
+- **レビュー容量のメトリクス**: ボトルネックはレビュー容量 (記事: dotnet/runtime では上位 2 名の
+  レビュアーで agent PR への指摘の 36%)。`status --watch` にレビュー待ちティア数と
+  needs_human 滞留数を出し、レビューが詰まる前に可視化する
+- **エージェント間レビュー** (将来): behavioral ティアの中間レビューを別セッションの
+  ワーカー (実装者と共犯でない) に任せる、現行 judge の拡張。指摘は「差分への指摘」
+  「シナリオが見落とした観点」で価値を測り、confidence スコアによるフィルタは使わない
+  (Faire の教訓: 自己申告 confidence は品質シグナルにならない)
+- **失敗ヒエラルキーの運用** (Spotify の順序): generation 時の失敗 < CI 時の失敗 <
+  通って機能的に誤り、というダメージの順で狙う。カナリアは最悪の種 (通って誤り) を
+  拾うが、judge の `priorities` を generation 時の失敗として早めに Seed 化する
+  仕組みは信号活用の余地あり
+- **worktree の生涯管理**: 失敗ミッションの worktree は調査用に残す運用の明文化と、
+  `git worktree remove` に相当する掃除コマンドの入口
+
 ## 保守メモ
 
 - `mock` ワーカーはデモ・結合テストの要。実 LLM worker を追加しても、契約

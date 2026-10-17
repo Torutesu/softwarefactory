@@ -85,7 +85,12 @@ Harness → レポート → マージ) を即座に体験できます。
     "openrouter": { "type": "openrouter", "model": "anthropic/claude-sonnet-4.5" }
   },
   "max_attempts": 2,
-  "judge_pass_score": 80
+  "judge_pass_score": 80,
+  "merge_policy": { "mechanical": "auto", "scoped": "auto", "behavioral": "review", "sensitive": "review" },
+  "sensitive_paths": ["auth", "credential", "password", "secret", "token", "payment", "billing", "crypto", "oauth", "jwt", "session", "permission", "migrat"],
+  "small_change_lines": 50,
+  "intake_dup_threshold": 0.85,
+  "worktree_copy": [".env", ".env.*", "config/secrets.json", "*.local"]
 }
 ```
 
@@ -99,6 +104,26 @@ Harness → レポート → マージ) を即座に体験できます。
 - `resume: true` … 反復2回目以降、同一ワーカーのセッションを継続 (`--resume <session-id>`)
 - ミッション単位のモデル指定: `factory mission new ... --model opus` で config を上書き
 - 使用量は `.factory/usage/` に日次+呼び出し時刻を記録 (`factory usage` で表確認)
+
+## マージゲート (blast radius ティア)
+
+マージ (`factory merge` / tick の自動出荷) の前に、`factory/<id>` ブランチの差分を
+4 ティアに分類し、ティアごとのポリシーで自動マージの可否を決めます。
+
+| ティア | 例 | 既定ポリシー |
+|---|---|---|
+| `mechanical` | テスト/ドキュメント/バージョンだけの変更 | 自動チェックでマージ可 |
+| `scoped` | `small_change_lines` (既定 50) 行以下の修正 | 同上 |
+| `behavioral` | 大きめの差分・greenfield (0→1) | **人間レビュー** |
+| `sensitive` | `sensitive_paths` (auth/決済/認証情報等) を含む | **領域オーナーのレビュー** |
+
+- 自動出荷 (tick level>=2) は `autonomy_level` と risk に加え、ティアの `merge_policy` が
+  `auto` のときだけ実行します。`review` のティアは `needs_human` に「マージゲート」エントリが出ます
+- `factory merge <id>` はティアと推奨レビューを表示してから確認を取ります
+- マージコミットと PR には帰属トレーラ (`Assisted-by: SoftwareFactory <id> (workers: ...)`) が
+  付きます。`Signed-off-by` は人間のマージ判断が責任を持つため付与しません
+- worktree は空の checkout のため、`.env` 等の非追跡ファイルを
+  `worktree_copy` (またはリポジトリの `.worktreeinclude`) に従って複製します
 
 ## 自律運転 (ファクトリークロック)
 
@@ -185,8 +210,9 @@ factory pr <id>              # origin + gh があれば PR 作成、無ければ
 SoftwareFactory/            ← このリポジトリ (オーケストレータ本体)
   bin/factory               CLI ランチャ
   factory/                  Orchestrator 本体
-    workers/                claude_code / opencode / mock + Router
+    workers/                claude_code / codex / opencode / openrouter / mock + Router
     harness/                runner (build/test/シナリオ実行) + judge (LLM-as-Judge)
+    mergegate.py            マージゲート (blast radius 分類 / 帰属トレーラ)
     data/                   デモ用アセット (demo_app / demo_seed)
   tests/                    結合テスト
   docs/                     設計ドキュメント

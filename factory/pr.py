@@ -11,6 +11,7 @@ import sys
 from pathlib import Path
 
 from . import gitx
+from .config import Config
 from .state import Factory, Mission
 from .util import save_text, which
 
@@ -65,4 +66,15 @@ def _make_body(factory: Factory, m: Mission) -> str:
     final = (factory.reports_dir(m.id) / "final.md").read_text(encoding="utf-8") if (factory.reports_dir(m.id) / "final.md").exists() else ""
     if final:
         lines.append("\n---\n\n" + final)
+    # マージゲート (ティア・帰属) — 分類できない (ブランチ消滅済み等) 場合は帰属だけ
+    from . import mergegate
+
+    cls = None
+    try:
+        repo = Path(m.repo).resolve() if Path(m.repo).is_absolute() else factory.root / m.repo
+        cls = mergegate.classify(Config.discover() or Config(root=str(factory.root)),
+                                 repo, f"factory/{m.id}", m)
+    except Exception:  # noqa — PR 本文は必ず出せる
+        cls = None
+    lines.append("\n---\n\n" + mergegate.pr_blurb(cls, m))
     return "\n".join(lines)

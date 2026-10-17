@@ -19,6 +19,29 @@ DEFAULT_MAIN_BRANCH = "main"
 # openrouter は API キー制。mock は最後のフォールバック。
 DEFAULT_WORKER_ORDER = ["claude_code", "codex", "opencode", "openrouter", "mock"]
 
+# マージゲート: 変更の blast radius を 4 ティアに分け、ティアごとに自動マージの可否を決める。
+#   mechanical  = テスト/ドキュメント/バージョン等の機械的変更
+#   scoped      = 変更行数が少ない (既定 50 行以下) す。限定された修正
+#   behavioral  = 製品の振る舞いに触れる差分 (大きな差分 / greenfield)
+#   sensitive   = auth・決済・認証情報など領域センシティブなパスを含む
+DEFAULT_MERGE_POLICY = {
+    "mechanical": "auto",
+    "scoped": "auto",
+    "behavioral": "review",
+    "sensitive": "review",
+}
+# sensitive 判定のパスパターン (部分一致・大文字小文字を無視)
+DEFAULT_SENSITIVE_PATHS = [
+    "auth", "credential", "password", "secret", "token",
+    "payment", "billing", "checkout", "crypto", "oauth", "jwt", "session",
+    "permission", "migrat",
+]
+# behavioral と scoped の境界 (変更行数)。dotnet/runtime のデータでは 1〜50 行の
+# agent PR は 76〜80% 合流、大きな変更は失敗率が上がる (Firecrawl 記事参照)。
+DEFAULT_SMALL_CHANGE_LINES = 50
+# worktree は空の checkout なので、gitignore されがちな環境ファイルをコピーする
+DEFAULT_WORKTREE_COPY = [".env", ".env.*", "config/secrets.json", "*.local"]
+
 
 @dataclass
 class WorkerConfig:
@@ -77,6 +100,14 @@ class Config:
     notify_url: str = ""  # tick の要約を POST する Webhook (空なら印刷のみ)
     tick_concurrency: int = 2  # tick が並列実行するミッション上限
     max_repair_rounds: int = 1  # カナリア失敗→修復の自動往復上限 (0 で修復しない)
+    merge_policy: Dict[str, str] = field(
+        default_factory=lambda: dict(DEFAULT_MERGE_POLICY))  # tier -> auto | review
+    sensitive_paths: List[str] = field(
+        default_factory=lambda: list(DEFAULT_SENSITIVE_PATHS))  # sensitive 判定パターン
+    small_change_lines: int = DEFAULT_SMALL_CHANGE_LINES  # scoped/behavioral の境界行数
+    intake_dup_threshold: float = 0.85  # intake 重複ゲートの類似度閾値 (0 で無効)
+    worktree_copy: List[str] = field(
+        default_factory=lambda: list(DEFAULT_WORKTREE_COPY))  # worktree へ複製する非追跡ファイル
     projects: Dict[str, ProjectConfig] = field(default_factory=dict)
     workers: Dict[str, WorkerConfig] = field(default_factory=dict)
 
@@ -102,6 +133,11 @@ class Config:
             "notify_url": self.notify_url,
             "tick_concurrency": self.tick_concurrency,
             "max_repair_rounds": self.max_repair_rounds,
+            "merge_policy": dict(self.merge_policy),
+            "sensitive_paths": list(self.sensitive_paths),
+            "small_change_lines": self.small_change_lines,
+            "intake_dup_threshold": self.intake_dup_threshold,
+            "worktree_copy": list(self.worktree_copy),
             "root": self.root,
             "projects": {k: vars(v) for k, v in self.projects.items()},
             "workers": {k: vars(v) for k, v in self.workers.items()},
@@ -145,6 +181,13 @@ class Config:
             notify_url=data.get("notify_url", ""),
             tick_concurrency=int(data.get("tick_concurrency", 2)),
             max_repair_rounds=int(data.get("max_repair_rounds", 1)),
+            merge_policy={**DEFAULT_MERGE_POLICY, **(data.get("merge_policy") or {})},
+            sensitive_paths=(list(data["sensitive_paths"]) if data.get("sensitive_paths") is not None
+                             else list(DEFAULT_SENSITIVE_PATHS)),
+            small_change_lines=int(data.get("small_change_lines", DEFAULT_SMALL_CHANGE_LINES)),
+            intake_dup_threshold=float(data.get("intake_dup_threshold", 0.85)),
+            worktree_copy=(list(data["worktree_copy"]) if "worktree_copy" in data
+                           else list(DEFAULT_WORKTREE_COPY)),
             projects=projects,
             workers=workers,
         )

@@ -106,6 +106,23 @@ CLI 実装差異:
   nearest サンプリング (既定 64×64) + RGB 平均絶対差。PNG は標準ライブラリで
   デコード (bit depth 8 / grey・RGB・palette・RGBA・非インターレース)。
 
+## 「AI software factory」の 5 段階との対応 (2026-10 適用)
+
+Firecrawl の記事 *How to Build an AI Software Factory* (2026-09) が挙げる
+Stripe / Spotify / Shopify / Ramp 共通の 5 段階 (Intake → Isolation → Tools →
+Verification → Merge gate) と、このリポジトリの対応表。
+
+| 記事の段階 | 本リポジトリの実装 | 記事から採用した観点 |
+|---|---|---|
+| 1. Intake (仕事を絞り込む) | `seeds/`, `ingest`, `listen`, `tick` intake | **重複ゲート**: 既出 Seed/ミッションと類似したシグナルは自動作成せず `needs_human` へ (`intake_dup_threshold`, 既定 0.85)。ローカルに情報が無い=未着手とは限らないので、一致「しない」場合も作成を止めない (fail-safe を充足、fail-open にしない)。Microsoft の dotnet/runtime データ (1〜50 行の agent PR は 76〜80% 合流) に合わせ `small_change_lines` を scoped/behavioral の境界に使用 |
+| 2. Isolation (住み分け) | ミッション毎の git worktree (`factory/<id>`) + 空きポート自動選定 | **worktree は空の checkout** を補う: `seed_worktree_files` が `.env` 等 (config `worktree_copy` / リポジトリの `.worktreeinclude`) を worktree へ複製。並列 4 台目あたりで壊れる原因 (ポートと環境ファイル) を両方潰している |
+| 3. Tools (触れる範囲) | `claude` `allowed_tools`/`disallowed_tools` 透過、ワーカー毎の予算 | (拡張候補は roadmap: テレメトリ/フィーチャーフラグ/ドキュメント検索を MCP で供給) |
+| 4. Verification (ネストした検証) | build/test → **LLM ジャッジ** → **カナリア (main 再検証)** の 3 層。Spotify 型と同型 | 検証は生成後に始まり、差分が人間に届くまでに完了する。判定は仕様適合 (holdout シナリオ) で、コードレビューに依存しない。Faire の教訓 (モデルの自己申告 confidence は品質シグナルにならない) を踏まえ、ジャッジはコンテキスト + シナリオ結果で判定する |
+| 5. Merge gate (責任) | `merge` / `step_deliver` | **blast radius ティア**: `mergegate.classify` が差分を mechanical / scoped / behavioral / sensitive に分類し、`merge_policy` (既定: 機械的と小差分は auto、振る舞いとセンシティブは人間レビュー) で自動マージの可否を決める。**帰属**: マージコミット/PR に `Assisted-by:` トレーラ、`Signed-off-by` は付けない (Linux kernel の 2026 方針に準拠)。Greenfield は既定 behavioral (0→1 実装は人間レビュー対象) |
+
+作業が想定より重いティアに落ちたら、`merge_policy` の調整 (例: `behavioral: auto`)
+か `sensitive_paths` の見直しで緩める。逆に締めるならティアを review 側に倒す。
+
 ## 0→1 と 継続アップデート
 
 - **0→1 (greenfield)**: ミッション kind=greenfield。空リポジトリ (or 新規リポジトリ) を対象に

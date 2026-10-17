@@ -1,11 +1,20 @@
 """Git 操作ヘルパー (標準ライブラリのみ)。"""
 from __future__ import annotations
 
+import os
 import shutil
+from fnmatch import fnmatch
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional
 
 from .util import ProcResult, run_cmd
+
+# seed_worktree_files で辿らないディレクトリ (重い/無意味)
+_SKIP_WALK_DIRS = {
+    ".git", "node_modules", ".venv", "venv", "__pycache__",
+    "dist", "build", ".pytest_cache", ".mypy_cache", ".ruff_cache",
+    "target", ".next", ".nuxt", "coverage",
+}
 
 
 def _git(repo: Path, *args, timeout: int = 60) -> ProcResult:
@@ -147,3 +156,85 @@ def abort_revert(repo: Path) -> ProcResult:
 def remote_url(repo: Path, name: str = "origin") -> Optional[str]:
     r = _git(repo, "config", f"remote.{name}.url")
     return r.out.strip() if r.code == 0 and r.out.strip() else None
+
+
+def branch_changes(repo: Path, branch: str, base: str = "") -> dict:
+    """ブランチの base からの変更統計を返す。
+
+    戻り値: {"files": int, "lines": int, "paths": [str]}
+    マージゲートの blast radius 分類 (mergegate.py) で使う。
+    merge-base 基準 (3-dot) なので、base 側が進んでいても逆差分を数えない。
+    """
+    if not branch_exists(repo, branch) or not has_commits(repo):
+        return {"files": 0, "lines": 0, "paths": []}
+    base = base or default_branch(repo)
+    r = _git(repo, "diff", "--numstat", f"{base}...{branch}")
+    if r.code != 0:
+        r = _git(repo, "diff", "--numstat", f"{base}..{branch}")
+        if r.code != 0:
+            return {"files": 0, "lines": 0, "paths": []}
+    files, lines, paths = 0, 0, []
+    for ln in (r.out or "").splitlines():
+        if not ln.strip():
+            continue
+        added, _, rest = ln.partition("\t")
+        deleted, _, path = rest.partition("\t")
+        paths.append(path.strip())
+        files += 1
+        if added.isdigit():
+            lines += int(added)
+        if deleted.isdigit():
+            lines += int(deleted)
+    return {"files": files, "lines": lines, "paths": paths}
+
+
+def seed_worktree_files(repo, wt, patterns=None):
+    """リポジトリの非追跡ファイル (.env 等) を worktree に複製する。
+
+    worktree は空の checkout なので、gitignore された環境ファイルが存在しない。
+    並列エージェントの 4 つ目あたりで「ポートと .env」が壊れるのはこのため
+    (Firecrawl: How to Build an AI Software Factory, Stage 2)。
+
+    パターンは fnmatch (相対パス or ファイル名の両方に適用)。リポジトリに
+    `.worktreeinclude` がある場合はそれを優先する (1 行 1 パターン, # はコメント)。
+    patterns に空リストを渡した場合は何もコピーしない。
+    """
+    from pathlib import Path as _P
+    repo, wt = _P(repo), _P(wt)
+    if patterns is None:
+        from .config import DEFAULT_WORKTREE_COPY
+        patterns = list(DEFAULT_WORKTREE_COPY)
+    include = list(patterns or [])
+    inc_file = repo / ".worktreeinclude"
+    if inc_file.exists():
+        lines = load_lines(inc_file)
+        include = [l for l in (s.strip() for s in lines) if l and not l.startswith("#")] or include
+    if not include:
+        return []
+
+    copied = []
+    for dirpath, dirnames, filenames in os.walk(repo):
+        dirnames[:] = [d for d in dirnames if d not in _SKIP_WALK_DIRS]
+        for fn in filenames:
+            full = _P(dirpath) / fn
+            rel = full.relative_to(repo)
+            posix = rel.as_posix()
+            if not any(fnmatch(posix, p) or fnmatch(fn, p) for p in include):
+                continue
+            dst = wt / rel
+            if dst.exists():
+                continue
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                shutil.copy2(full, dst)
+                copied.append(posix)
+            except OSError:
+                pass  # 複製失敗はベストエフォート
+    return copied
+
+
+def load_lines(path) -> List[str]:
+    try:
+        return Path(path).read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return []

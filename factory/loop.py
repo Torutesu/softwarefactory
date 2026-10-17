@@ -129,6 +129,13 @@ def _run_locked(factory: Factory, m: Mission, iterations: Optional[int], cfg: Op
 
     run_dir = factory.run_dir(m.id)
 
+    # --- Isolation 衛生 -------------------------------------------------
+    # worktree は空の checkout。.env 等の非追跡ファイルを複製しておく (Stage 2 の関門)
+    seeded = gitx.seed_worktree_files(repo_path, wt, cfg.worktree_copy)
+    if seeded:
+        print(f"[loop] worktree に非追跡ファイルを複製: {', '.join(seeded[:5])}"
+              + ("..." if len(seeded) > 5 else ""))
+
     # --- Spec ----------------------------------------------------------
     template = specgen.SPEC_TEMPLATE.format(title=m.title)
     current = load_text(factory.spec_file(m.id))

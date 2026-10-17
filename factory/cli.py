@@ -254,16 +254,11 @@ def cmd_report(args) -> None:
 
 def cmd_merge(args) -> None:
     cfg, f = _require_cfg()
-    from . import gitx
+    from . import gitx, mergegate
 
     m = f.get_mission(args.mission)
     if not m:
         raise SystemExit(f"mission not found: {args.mission}")
-    if not args.yes:
-        r = input(f"{m.id} の worktree を main に squash マージします。よろしいですか? [y/N] ")
-        if r.strip().lower() != "y":
-            print("中止しました")
-            return
     repo_path = Path(m.repo).resolve() if Path(m.repo).is_absolute() else f.root / m.repo
     wt = f.worktree(m.id)
     dirty = gitx.status_porcelain(wt)
@@ -271,13 +266,25 @@ def cmd_merge(args) -> None:
         print("worktree に未コミットの変更があります。まずワーカーにコミットさせてください:", file=sys.stderr)
         print(dirty, file=sys.stderr)
         sys.exit(1)
-    r = gitx.merge_squash(repo_path, f"factory/{m.id}", f"factory: {m.id} {m.title}")
+    # --- Merge gate: blast radius を表示してから判断させる ----------------
+    cls = mergegate.classify(cfg, repo_path, f"factory/{m.id}", m)
+    tier = cls["tier"]
+    print(f"マージゲート: tier={tier} ({mergegate.describe(cls)})")
+    print(f"推奨レビュー: {cls['review']}")
+    if tier in ("behavioral", "sensitive") or m.risk != "low":
+        print("⚠ この差分は製品の振る舞い/センシティブ領域に触れます --yes は人間の判断として記録されます")
+    if not args.yes:
+        r = input(f"{m.id} の worktree を main に squash マージします。よろしいですか? [y/N] ")
+        if r.strip().lower() != "y":
+            print("中止しました")
+            return
+    r = gitx.merge_squash(repo_path, f"factory/{m.id}", mergegate.merge_message(m))
     if r.code != 0:
         print(f"マージ失敗: {r.err or r.out}", file=sys.stderr)
         sys.exit(1)
     gitx.remove_worktree(repo_path, wt)
     m.status = "done"
-    m.notes = (m.notes + "\n" if m.notes else "") + "merged to main"
+    m.notes = (m.notes + "\n" if m.notes else "") + f"merged to main (tier: {tier})"
     f.save_mission(m)
     f.event("mission_merged", m.id)
     print(f"merged: {m.id}")

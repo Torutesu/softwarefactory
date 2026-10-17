@@ -36,6 +36,8 @@ def run_canary(factory: Factory, mid: str, cfg=None, fix: bool = False, run_comp
     stamp = dt.datetime.now().strftime("%Y%m%d-%H%M%S")
     cwt = factory.mission_dir(mid) / "canary"
     gitx.create_worktree(repo, cwt, detached=True, branch=default)
+    # カナリアも空の checkout。.env 等がないと build/run が偽失敗する
+    gitx.seed_worktree_files(repo, cwt, getattr(cfg, "worktree_copy", None) if cfg else None)
     try:
         hr = evaluate(factory, m, cwt)
     finally:
