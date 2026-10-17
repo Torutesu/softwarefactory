@@ -41,16 +41,39 @@
 ## Worker 切替の判断基準
 
 1. `worker_order` の先頭から順に試す (`use_worker` が auto 以外ならそれが最優先)。
-2. その日の呼び出し回数が `daily_call_limit` を超えたワーカーは後ろへ回す。
+2. 予算超過のワーカー (日次 `daily_call_limit`、または rolling 窓 `window_call_limit` 分) は後ろへ回す。
 3. 実行して quota 系エラー (`usage limit`, `rate limit`, `credit balance`…) か
    timeout なら、残っている候補へフォールバック。
 4. 全員失敗でミッションを failed にする (人間が介入する状態)。
 
 CLI 実装差異:
 
-- `claude_code`: `claude -p <prompt> --output-format json --dangerously-skip-permissions`
-  → JSON から result / session_id / usage tokens / total_cost_usd を取得
-- `opencode`: `opencode run <prompt>` (テキスト)。usage は取れないのでトークン記録なし
+- `claude_code`: `claude -p <prompt> --output-format json --dangerously-skip-permissions
+  [--allowedTools ...] [--disallowedTools ...] [--resume <sid>]`
+  → JSON から result / session_id / usage tokens / total_cost_usd を取得。
+  config `resume: true` で反復 2 回目以降は同一セッションに継続。
+- `opencode`: `opencode run [--model M] <prompt>` (config `args` で `--format json` 等を追加可)。
+  JSON 出力時はテキスト / usage / sessionID をベストエフォートで抽出。
+
+## シグナル → Seed の自動化 (Ingest / Listen)
+
+- `factory ingest <src|url>`: ローカル素材はディレクトリごと `seeds/<name>/` に複製、
+  URL は本文テキスト抽出 (script/style 除去) + 生 HTML 同梱で Seed 化。
+  `--project/--repo` があればミッション作成、`--run` で実行まで一括。
+- `factory listen`: 標準ライブラリの HTTP サーバ。`POST /signals {title, body, source,
+  files}` を受けて Seed 化し、`--auto-create` でミッション作成 (`--auto-run` で実行まで)。
+  取り込みは state.json の `signals` に積まれ、`factory signals` で見られる。
+- カナリア (`factory canary <id> [--fix]`): main 先頭の detach worktree で Harness 再実行。
+  FAIL 時は当該 squash コミットを revert し、失敗要約を Seed 化して再ミッションを立てる
+  (`--run-complete` で即実行)。revert は worktree が dirty だと中止する。
+
+## 検証ハーネスの追加機能
+
+- 並列実行でも安全: ポートは `health_url` の番号を優先しつつ、使用中なら空きポートを選び、
+  `FACTORY_PORT` と `health_url` の両方に反映する。
+- UI 画像比較: ステップの `expect_png_similar: {file, to, ratio}`。特徴量なしの
+  nearest サンプリング (既定 64×64) + RGB 平均絶対差。PNG は標準ライブラリで
+  デコード (bit depth 8 / grey・RGB・palette・RGBA・非インターレース)。
 
 ## 0→1 と 継続アップデート
 

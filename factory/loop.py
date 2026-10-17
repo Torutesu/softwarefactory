@@ -87,6 +87,18 @@ def _pass_criteria(m: Mission, hr: HarnessResult, judge_data: Optional[dict]) ->
     return passed, int(final_score)
 
 
+def _effective_cfg(cfg: Config, m: Mission) -> Config:
+    """ミッション単位のモデル上書きを適用した config のコピーを返す。"""
+    if not m.model:
+        return cfg
+    import copy
+
+    cfg2 = copy.deepcopy(cfg)
+    for wc in cfg2.workers.values():
+        wc.model = m.model
+    return cfg2
+
+
 def run_mission(factory: Factory, mid: str, confirm: bool = False, iterations: Optional[int] = None, cfg: Optional[Config] = None) -> Mission:
     m = factory.get_mission(mid)
     if not m:
@@ -102,7 +114,7 @@ def run_mission(factory: Factory, mid: str, confirm: bool = False, iterations: O
 
 
 def _run_locked(factory: Factory, m: Mission, iterations: Optional[int], cfg: Optional[Config]) -> Mission:
-    cfg = cfg or (Config.discover() or Config(root=str(factory.root)))
+    cfg = _effective_cfg(cfg or (Config.discover() or Config(root=str(factory.root))), m)
     usage = Usage(factory.state_dir)
     router = Router(cfg, usage)
     max_it = iterations or m.max_iterations
@@ -153,8 +165,12 @@ def _run_locked(factory: Factory, m: Mission, iterations: Optional[int], cfg: Op
         prompt = build_dev_prompt(factory, m, n, max_it, hr, judge_data, worker_tail)
         save_text(factory.mission_dir(m.id) / "prompts" / f"iter-{n}.md", prompt)
 
+        # セッション継続: 前反復の (worker, session_id) を Router に渡す
+        resume = None
+        if n > 1 and m.session.get("worker") and m.session.get("session_id"):
+            resume = (m.session["worker"], m.session["session_id"])
         try:
-            wname, res = router.run("dev", wt, prompt)
+            wname, res = router.run("dev", wt, prompt, resume=resume)
         except AllWorkersFailed as e:
             it.status = "failed"
             it.note = str(e)
@@ -166,6 +182,8 @@ def _run_locked(factory: Factory, m: Mission, iterations: Optional[int], cfg: Op
         worker_tail = tail(res.text, 1500)
         it.note = worker_tail
         print(f"[loop] iter {n}: worker={wname} ({res.seconds:.1f}s)")
+        if res.session_id:
+            m.session = {"worker": wname, "session_id": res.session_id}
 
         hr = evaluate(factory, m, wt)
         judge_data = run_judge(factory, m, hr, worker_tail, router)

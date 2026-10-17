@@ -2,14 +2,21 @@
 
 主要コマンド:
   init        -- ファクトリを初期化 (--demo でデモ一式)
-  status      -- ミッション一覧
+  status      -- ミッション一覧 (--watch でダッシュボード)
+  signals     -- 取り込んだシグナル一覧
   seed add    -- Seed を追加
+  ingest      -- 素材/URL を Seed 化 (+ --run でミッション作成~実行まで一括)
+  listen      -- Webhook リスナー (POST /signals → Seed 化 / ミッション自動化)
   mission new -- ミッションを作成 / list -- 一覧
   run         -- ミッションを自律ループで回す
-  run-all     -- 待ち行列のミッションを順に回す
+  run-all     -- 待ち行列のミッションを順に回す (--parallel N で並列)
   validate    -- 検証のみ実行 (worker を呼ばない)
   report      -- 最終レポートを表示
   merge       -- worktree ブランチを main に squash マージ
+  canary      -- マージ済みを main で再検証 (--fix で revert + 再ミッション)
+  pr          -- gh で PR 作成 (なければ下書き)
+  holdout     -- シナリオの list / regen (陳腐化リフレッシュ)
+  compare-img -- 2枚の PNG 類似度 (UI ベンチ比較の補助)
   usage       -- 使用量レポート
   worker ping -- CLI の疎通確認
 """
@@ -50,14 +57,18 @@ def cmd_init(args) -> None:
 
 def cmd_status(args) -> None:
     cfg, f = _require_cfg()
-    ms = f.list_missions()
-    if not ms:
-        print("ミッションなし。`factory mission new` で作成してください。")
-        return
-    print(f"{'ID':<22} {'STATUS':<9} {'ITER':<4} {'SCORE':<5} {'RISK':<5} TITLE")
-    for m in ms:
-        score = m.iterations[-1].score if m.iterations and m.iterations[-1].score is not None else "-"
-        print(f"{m.id:<22} {m.status:<9} {len(m.iterations):<4} {str(score):<5} {m.risk:<5} {m.title}")
+    watch = getattr(args, "watch", 0) or 0
+    if watch:
+        import time
+
+        while True:
+            print("\033[2J\033[H", end="", flush=True)
+            print("factory dashboard (Ctrl-C で終了)  " + time.strftime("%Y-%m-%d %H:%M:%S"))
+            print()
+            _print_status(f)
+            time.sleep(watch)
+    else:
+        _print_status(f)
 
 
 def cmd_worker_ping(args) -> None:
@@ -103,7 +114,19 @@ def cmd_seed(args) -> None:
     readme = dst / "seed.md"
     if not readme.exists():
         readme.write_text(f"# Seed: {name}\n\n(ここに目的・参照材料・受け入れ基準を書いてください)\n", encoding="utf-8")
+    f.add_signal(name, "manual:seed-add")
     print(f"seed added: {dst}")
+
+
+def _resolve_repo(cfg: Config, project: str, repo_arg: str) -> str:
+    if project:
+        pc = cfg.projects.get(project)
+        if not pc:
+            raise SystemExit(f"エラー: project {project} が未登録です")
+        return pc.path
+    if repo_arg:
+        return repo_arg
+    raise SystemExit("エラー: --project NAME か --repo PATH のどちらかを指定してください")
 
 
 def cmd_mission(args) -> None:
@@ -115,17 +138,7 @@ def cmd_mission(args) -> None:
     if not args.title:
         print("usage: factory mission new <title> --project NAME|--repo PATH", file=sys.stderr)
         sys.exit(2)
-    if args.project:
-        pc = cfg.projects.get(args.project)
-        if not pc:
-            print(f"エラー: project {args.project} が未登録です", file=sys.stderr)
-            sys.exit(2)
-        repo = pc.path
-    elif args.repo:
-        repo = args.repo
-    else:
-        print("エラー: --project NAME か --repo PATH のどちらかを指定してください", file=sys.stderr)
-        sys.exit(2)
+    repo = _resolve_repo(cfg, args.project, args.repo)
     m = f.create_mission(
         title=args.title,
         kind=args.kind,
@@ -135,6 +148,7 @@ def cmd_mission(args) -> None:
         priority=args.priority,
         max_iterations=args.iterations,
         pass_score=args.pass_score,
+        model=args.model,
         notes=args.notes,
     )
     print(f"mission created: {m.id} ({m.status})")
@@ -155,14 +169,35 @@ def cmd_run_all(args) -> None:
     if not ms:
         print("実行待ちのミッションはありません")
         return
-    for m in ms:
-        print(f"=== run {m.id} ({m.title}) ===")
+    if (getattr(args, "parallel", 0) or 0) <= 1:
+        for m in ms:
+            print(f"=== run {m.id} ({m.title}) ===")
+            try:
+                run_mission(f, m.id, confirm=args.confirm, cfg=cfg)
+            except SystemExit as e:
+                print(f"[skip] {e}")
+            except Exception as e:
+                print(f"[error] {m.id}: {e}")
+        return
+
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    n = min(args.parallel, len(ms))
+    print(f"=== run-all parallel: {n} worker threads, {len(ms)} missions ===")
+
+    def one(mid: str) -> str:
         try:
-            run_mission(f, m.id, confirm=args.confirm, cfg=cfg)
+            m2 = run_mission(f, mid, confirm=args.confirm, cfg=cfg)
+            return f"[done] {mid}: {m2.status}"
         except SystemExit as e:
-            print(f"[skip] {e}")
+            return f"[skip] {mid}: {e}"
         except Exception as e:
-            print(f"[error] {m.id}: {e}")
+            return f"[error] {mid}: {e}"
+
+    with ThreadPoolExecutor(max_workers=n) as ex:
+        futs = {ex.submit(one, m.id): m.id for m in ms}
+        for fut in as_completed(futs):
+            print(fut.result(), flush=True)
 
 
 def cmd_validate(args) -> None:
@@ -228,6 +263,144 @@ def cmd_usage(args) -> None:
     print(Usage(f.state_dir).report(days=args.days))
 
 
+def _print_status(f: Factory) -> None:
+    ms = f.list_missions()
+    if not ms:
+        print("ミッションなし。`factory mission new` で作成してください。")
+        return
+    print(f"{'ID':<22} {'STATUS':<9} {'ITER':<4} {'SCORE':<5} {'RISK':<5} TITLE")
+    for m in ms:
+        score = m.iterations[-1].score if m.iterations and m.iterations[-1].score is not None else "-"
+        print(f"{m.id:<22} {m.status:<9} {len(m.iterations):<4} {str(score):<5} {m.risk:<5} {m.title}")
+
+
+def cmd_signals(args) -> None:
+    cfg, f = _require_cfg()
+    st = f.state()
+    signals = st.get("signals") or []
+    missions = st.get("missions") or {}
+    if not signals:
+        print("シグナルなし。`factory listen` で Webhook 受付、`factory ingest` で手動取込。")
+        return
+    print(f"{'SEED':<28} {'SOURCE':<12} MISSION")
+    for s in signals:
+        print(f"{str(s.get('seed', '')):<28} {str(s.get('source', '')):<12} {str(s.get('mission') or '-')}")
+
+
+def cmd_compare_img(args) -> None:
+    from .harness.png import similarity
+
+    try:
+        score = similarity(args.image_a, args.image_b, grid=args.grid)
+    except Exception as e:
+        print(f"エラー: {e}", file=sys.stderr)
+        sys.exit(2)
+    print(f"similarity: {score:.4f} ({'似ている' if score >= args.ratio else '似ていない'} / 閾値 {args.ratio})")
+
+
+def cmd_ingest(args) -> None:
+    cfg, f = _require_cfg()
+    from .ingest import ingest_dir, ingest_url
+
+    src = args.src
+    if src.startswith(("http://", "https://")):
+        seed_dir = ingest_url(f, src, name=args.name, title=args.title)
+        f.add_signal(seed_dir.name, "url:" + src[:80])
+    else:
+        seed_dir = ingest_dir(f, Path(args.src), name=args.name)
+        f.add_signal(seed_dir.name, "local:" + src[:60])
+    print(f"seed ingested: {seed_dir}")
+    if not (args.project or args.repo):
+        print("→ mission は未作成 (--project NAME / --repo PATH を付けると自動作成)")
+        return
+    repo = _resolve_repo(cfg, args.project, args.repo)
+    m = f.create_mission(
+        title=args.title or seed_dir.name,
+        kind=args.kind,
+        seed=seed_dir.name,
+        repo=repo,
+        risk=args.risk,
+        priority=args.priority,
+        max_iterations=args.iterations,
+        pass_score=args.pass_score,
+        model=args.model,
+        notes=args.notes or "ingested",
+    )
+    print(f"mission created: {m.id} ({m.status})")
+    if args.run:
+        _resolve_worker_override(cfg, args.worker)
+        m2 = run_mission(f, m.id, confirm=args.confirm, iterations=args.iterations, cfg=cfg)
+        print(f"status: {m2.status}")
+
+
+def cmd_listen(args) -> None:
+    cfg, f = _require_cfg()
+    from .listener import serve
+
+    serve(
+        f,
+        port=args.port,
+        bind=args.bind,
+        project=args.project,
+        auto_create=args.auto_create,
+        auto_run=args.auto_run,
+        cfg=cfg,
+    )
+
+
+def cmd_holdout(args) -> None:
+    cfg, f = _require_cfg()
+    from .holdout import generate, scenario_files
+
+    m = f.get_mission(args.mission)
+    if not m:
+        raise SystemExit(f"mission not found: {args.mission}")
+    hdir = f.holdout_dir_for(m.id)
+    if args.action == "list":
+        files = scenario_files(f, m.id)
+        print(f"holdout: {hdir}")
+        for p in files:
+            print(f" - {Path(p).name}")
+        if not files:
+            print(" (シナリオなし)")
+        return
+
+    # regen: 既存シナリオを掃除して再生成 (陳腐化した仕様のリフレッシュ)
+    if m.status == "done" and not args.force:
+        raise SystemExit("done ミッションのシナリオ再生成は --force を付けてください")
+    removed = 0
+    if hdir.exists():
+        for p in sorted(hdir.iterdir()):
+            if p.is_file() and (p.name.startswith("SC-") or p.suffix in (".json", ".py")):
+                p.unlink()
+                removed += 1
+    print(f"[holdout] {removed} ファイルを削除 → 再生成します")
+    from .usage import Usage
+    from .workers.router import Router
+
+    ok = generate(f, m, Router(cfg, Usage(f.state_dir)))
+    if not ok:
+        print("[holdout] 生成に失敗しました (log/ワーカー出力を確認)", file=sys.stderr)
+        sys.exit(1)
+    for p in scenario_files(f, m.id):
+        print(f" generated: {Path(p).name}")
+
+
+def cmd_canary(args) -> None:
+    cfg, f = _require_cfg()
+    from .canary import run_canary
+
+    result = run_canary(f, args.mission, cfg=cfg, fix=args.fix, run_complete=args.run_complete)
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+
+
+def cmd_pr(args) -> None:
+    cfg, f = _require_cfg()
+    from .pr import create_pr
+
+    create_pr(f, args.mission, base=args.base)
+
+
 # ---------------------------------------------------------------------------
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="factory", description="社内ソフトウェアファクトリー オーケストレータ")
@@ -239,7 +412,62 @@ def build_parser() -> argparse.ArgumentParser:
     sp.set_defaults(fn=cmd_init)
 
     sp = sub.add_parser("status", help="ミッション一覧")
+    sp.add_argument("--watch", type=int, nargs="?", const=2, default=None,
+                    help="指定秒ごとに再描画するダッシュボード (既定 2 秒)")
     sp.set_defaults(fn=cmd_status)
+
+    sp = sub.add_parser("signals", help="取り込んだシグナルの一覧")
+    sp.set_defaults(fn=cmd_signals)
+
+    sp = sub.add_parser("compare-img", help="2枚の PNG の類似度を表示")
+    sp.add_argument("image_a")
+    sp.add_argument("image_b")
+    sp.add_argument("--grid", type=int, default=64, help="比較グリッド幅 (既定 64)")
+    sp.add_argument("--ratio", type=float, default=0.85, help="似ている/いないの閾値表示用")
+    sp.set_defaults(fn=cmd_compare_img)
+
+    sp = sub.add_parser("ingest", help="素材/URL を Seed 化し、指定すればミッションまで作成")
+    sp.add_argument("src", help="ディレクトリ/ファイル/URL (http://, https://)")
+    sp.add_argument("--name", default="", help="seed 名 (省略時は自動)")
+    sp.add_argument("--title", default="", help="タイトル (URL 取込時の初期タイトルにも使用)")
+    sp.add_argument("--kind", default="greenfield", choices=["greenfield", "update"])
+    sp.add_argument("--project", default="")
+    sp.add_argument("--repo", default="")
+    sp.add_argument("--risk", default="low", choices=["low", "high"])
+    sp.add_argument("--priority", type=int, default=5)
+    sp.add_argument("--iterations", type=int, default=3)
+    sp.add_argument("--pass-score", type=int, default=80)
+    sp.add_argument("--model", default="")
+    sp.add_argument("--notes", default="")
+    sp.add_argument("--run", action="store_true", help="作成後に即実行")
+    sp.add_argument("--worker", default="auto")
+    sp.add_argument("--confirm", action="store_true")
+    sp.set_defaults(fn=cmd_ingest)
+
+    sp = sub.add_parser("listen", help="Webhook リスナー起動 (Seed 自動化)")
+    sp.add_argument("--port", type=int, default=8787)
+    sp.add_argument("--bind", default="127.0.0.1")
+    sp.add_argument("--project", default="", help="--auto-create 時の既定プロジェクト")
+    sp.add_argument("--auto-create", action="store_true", help="シグナル受信でミッションを自動作成")
+    sp.add_argument("--auto-run", action="store_true", help="さらに自動実行 (--auto-create 必要)")
+    sp.set_defaults(fn=cmd_listen)
+
+    sp = sub.add_parser("holdout", help="holdout シナリオの list / regen")
+    sp.add_argument("action", choices=["list", "regen"])
+    sp.add_argument("mission")
+    sp.add_argument("--force", action="store_true", help="done ミッションの regen を許可")
+    sp.set_defaults(fn=cmd_holdout)
+
+    sp = sub.add_parser("canary", help="マージ済みミッションを main で再検証")
+    sp.add_argument("mission")
+    sp.add_argument("--fix", action="store_true", help="失敗時に revert + 再ミッション作成")
+    sp.add_argument("--run-complete", action="store_true", help="--fix で作った再ミッションを即実行")
+    sp.set_defaults(fn=cmd_canary)
+
+    sp = sub.add_parser("pr", help="gh で PR 作成 (なければ下書き)")
+    sp.add_argument("mission")
+    sp.add_argument("--base", default="", help="base ブランチ (既定: リポジトリ既定)")
+    sp.set_defaults(fn=cmd_pr)
 
     sp = sub.add_parser("worker", help="worker 操作")
     sp.add_argument("action", choices=["ping"])
@@ -262,6 +490,7 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--priority", type=int, default=5)
     sp.add_argument("--iterations", type=int, default=3)
     sp.add_argument("--pass-score", type=int, default=80)
+    sp.add_argument("--model", default="", help="ミッション単位のモデル上書き (例: sonnet)")
     sp.add_argument("--notes", default="")
     sp.set_defaults(fn=cmd_mission)
 
@@ -275,6 +504,7 @@ def build_parser() -> argparse.ArgumentParser:
     sp = sub.add_parser("run-all", help="queued ミッションを順に実行")
     sp.add_argument("--worker", default="auto")
     sp.add_argument("--confirm", action="store_true")
+    sp.add_argument("--parallel", type=int, default=1, help="並列実行数 (既定 1)")
     sp.set_defaults(fn=cmd_run_all)
 
     sp = sub.add_parser("validate", help="検証のみ (worker 呼び出しなし)")

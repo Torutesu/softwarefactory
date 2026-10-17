@@ -4,31 +4,41 @@
 
 ## 段階 2 → 3: シグナルの自動化
 
-- [ ] **シグナル → ミッションの自動化**: `factory ingest <seed-dir>` で spec 生成まで一括 (`mission new` + `run` の連鎖)
-- [ ] **本番シグナル取り込み**: エラートラッカー/監視/UX 計測からの webhook → seeds/ に自動 Seed 化
-- [ ] **SNS 反応の取り込み**: 検索結果の収集 → バグ/要望候補のドラフト生成 (人間が seed.md に確定させる)
+- [x] **シグナル → ミッションの自動化**: `factory ingest <src|url> --project X --run` で Seed 化 → mission 作成 → 実行まで一括
+- [x] **本番シグナル取り込み**: `factory listen --port N --auto-create` で webhook (POST /signals) → seeds/ 自動 Seed 化 (+ `--auto-run` で実行まで)
+- [ ] **SNS 反応の取り込み**: `factory ingest <url>` 汎用取込は済み。検索結果の定期収集とドラフト生成 (人間が seed.md 確定) は今後
+- [x] **シグナル一覧**: `factory signals`
 
 ## 検証の拡強
 
-- [ ] **UI ベンチマーク比較**: スクショと実装画面の類似スコア (Playwright + 画像差分)
-- [ ] **シナリオの自動リフレッシュ**: シナリオ自体が陳腐化したら再生成するワークフロー
-- [ ] **カナリア運用**: マージ後の本番検証が失敗したら revert + ミッションの自動立て直し
+- [x] **UI ベンチマーク比較**: `expect_png_similar` ステップ (標準ライブラリ PNG デコード + 類似スコア)。Playwright 撮影は将来オプション
+- [x] **シナリオの自動リフレッシュ**: `factory holdout regen <id>` (既存シナリオを掃除して再生成)
+- [x] **カナリア運用**: `factory canary <id> [--fix]` — main 再検証、FAIL 時 revert + 失敗要約 Seed + 再ミッション (`--run-complete` で実行まで)
 
 ## Worker / 資源管理
 
-- [ ] **トークン推定の接続**: OpenCode 側の usage 取得
-- [ ] **クォータ予測**: サブスクの時間窓と日次リミットの二段管理
-- [ ] **並列 Worker**: ミッション並列実行 (ミッション単位のロックは既にある)
-- [ ] **ツール制限の明示化**: claude の allowedTools / opencode の permission 設定を config から透過指定
+- [x] **OpenCode 側 usage/セッション**: JSON 出力 (`--format json` を config.args に追加) からテキスト/usage/sessionID をベストエフォート抽出
+- [x] **クォータ予測**: `daily_call_limit` + `window_call_limit`/`window_minutes` (例: 5h 窓) の二段管理。超過ワーカーは候補の後ろへ
+- [x] **並列 Worker**: `factory run-all --parallel N` (ミッション単位ロック + 空きポート自動選定)
+- [x] **ツール制限の明示化**: claude `allowed_tools` / `disallowed_tools` → `--allowedTools` / `--disallowedTools` 透過
 
 ## 顧客体験
 
-- [ ] **PR 連携**: `gh pr create` でレポート貼り付け
-- [ ] **ダッシュボード**: `factory status --watch`
-- [ ] **セッション Resume**: worker にセッションIDを渡して前反復の続きから
-- [ ] **モデル指定の per-mission 上書き**
+- [x] **PR 連携**: `factory pr <id>` — origin + gh があれば `gh pr create`、無ければ `reports/pr-draft.md`
+- [x] **ダッシュボード**: `factory status --watch [秒]`
+- [x] **セッション Resume**: ワーカー config `resume: true` で反復を跨ぐセッション継続 (claude `--resume` / opencode `--session`)
+- [x] **モデル指定の per-mission 上書き**: `factory mission new ... --model opus`
+
+## 次の候補 (未実装)
+
+- **UI 撮影の自動化**: Playwright/AppleScript によるスクショ取得ステップ (現在はアプリ自身が PNG を出力する前提)
+- **定時シグナル収集**: cron で検索/SNS/エラートラッカーを巡回して Seed ドラフト化
+- **OpenCode のトークン/moment 予測**: 使用傾向から窓内残枠の予測表示
+- **ダッシュボード強化**: usage 窓と canary 状態も `status --watch` に表示
+- **複数リポジトリ横断の依存解消**: ミッション間の順序制約 (DAG)
 
 ## 保守メモ
 
 - `mock` ワーカーはデモ・結合テストの要。実 LLM worker を追加しても、契約
   (prompt に入力 → 変更を出力) が同じならパイプラインへの影響はない
+- `run-all --parallel` 併用時、usage JSON の同時書き込みはベストエフォート (破損時は記録欠落のみ)

@@ -111,7 +111,9 @@ def _shell(cmd: str, cwd: Path, port: Optional[int] = None, timeout: int = 600, 
     )
 
 
-def _check_step(step, cwd: Path, port: Optional[int], holdout_dir: Path) -> StepResult:
+def _check_step(step, cwd: Path, port: Optional[int], holdout_dir) -> StepResult:
+    cwd = Path(cwd)
+    holdout_dir = Path(holdout_dir)
     r = _shell(step.cmd, cwd, port=port, timeout=step.timeout, env_extra={"FACTORY_HOLDOUT_DIR": str(holdout_dir)})
     ok = r.ok
     if ok and step.expect_contains is not None:
@@ -120,6 +122,31 @@ def _check_step(step, cwd: Path, port: Optional[int], holdout_dir: Path) -> Step
         ok = step.expect_not_contains not in r.tail
     if ok and step.expect_regex is not None:
         ok = re.search(step.expect_regex, r.tail) is not None
+    cmp_spec = getattr(step, "expect_png_similar", None)
+    if ok and cmp_spec:
+        import os
+
+        from .png import similarity
+
+        got = os.path.expandvars(cmp_spec.get("file", ""))
+        bench = holdout_dir / os.path.expandvars(cmp_spec.get("to", ""))
+        threshold = float(cmp_spec.get("ratio", 0.85))
+        if not (os.path.isabs(got) and os.path.exists(got)) and not os.path.exists(got):
+            got = os.path.join(str(cwd), cmp_spec.get("file", ""))
+        if not os.path.exists(got):
+            r.tail = (r.tail + f"\n[png-similar] 画像が見つかりません: {got}")[-1500:]
+            ok = False
+        elif not bench.exists():
+            r.tail = (r.tail + f"\n[png-similar] ベンチ画像が見つかりません: {bench}")[-1500:]
+            ok = False
+        else:
+            try:
+                score = similarity(got, str(bench), grid=int(cmp_spec.get("grid", 64)))
+            except Exception as e:
+                score = 0.0
+                r.tail = (r.tail + f"\n[png-similar] 比較エラー: {e}")[-1500:]
+            r.tail = f"{r.tail}\n[png-similar] similarity={score:.3f} (閾値 {threshold})"[-1500:]
+            ok = score >= threshold
     r.ok = ok
     return r
 
@@ -158,6 +185,33 @@ def _resolve_port(health_url: str) -> Optional[int]:
         return None
 
 
+def _port_busy(port: int) -> bool:
+    import socket
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        try:
+            s.bind(("127.0.0.1", port))
+            return False
+        except OSError:
+            return True
+
+
+def _pick_port(preferred: int) -> int:
+    """preferred が空いていなければ空きポートを返す (並列ミッションの衝突回避)。"""
+    import socket
+
+    if not _port_busy(preferred):
+        return preferred
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
+def _apply_port(url: str, port: int) -> str:
+    """health_url 内のポート番号を port に差し替える。"""
+    return re.sub(r"(127\.0\.0\.1|localhost):\d+", lambda m: f"{m.group(1)}:{port}", url, count=1)
+
+
 def evaluate(factory: Factory, m: Mission, wt: Path, judge: bool = True) -> HarnessResult:
     """現在の worktree を検証し、結果を返す。"""
     build = _load_build(factory, m)
@@ -183,6 +237,7 @@ def evaluate(factory: Factory, m: Mission, wt: Path, judge: bool = True) -> Harn
             port = _resolve_port(build["health_url"] or "")
             if port is None:
                 port = 8765 + (int(m.id[-2:], 16) % 100)
+            port = _pick_port(port)
             env = child_env({"FACTORY_PORT": str(port), "FACTORY_REPO": str(cwd)})
             proc = subprocess.Popen(
                 ["/bin/bash", "-lc", build["run"]],
@@ -192,10 +247,12 @@ def evaluate(factory: Factory, m: Mission, wt: Path, judge: bool = True) -> Harn
             )
             hr.service_started = True
             if build["health_url"]:
-                url = build["health_url"].replace("${FACTORY_PORT}", str(port))
+                url = _apply_port(build["health_url"].replace("${FACTORY_PORT}", str(port)), port)
                 hr.health_ok = _wait_health(url, timeout=build["wait_s"])
                 if not hr.health_ok:
                     hr.warnings.append(f"health_url が起動しませんでした: {url}")
+            else:
+                hr.service_started = True
         except Exception as e:
             hr.warnings.append(f"service 起動失敗: {e}")
 

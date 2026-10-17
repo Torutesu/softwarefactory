@@ -62,8 +62,8 @@ def branch_exists(repo: Path, branch: str) -> bool:
     return _git(repo, "rev-parse", "--verify", "--quiet", branch).code == 0
 
 
-def create_worktree(repo: Path, wt_path: Path, branch: str) -> Path:
-    """worktree を作る。既存があれば再利用。"""
+def create_worktree(repo: Path, wt_path: Path, branch: str = "", detached: bool = False) -> Path:
+    """worktree を作る。既存があれば再利用。branch を省略か detached=True で detach。"""
     wt_path = Path(wt_path)
     if wt_path.exists() and (wt_path / ".git").exists():
         return wt_path
@@ -71,7 +71,10 @@ def create_worktree(repo: Path, wt_path: Path, branch: str) -> Path:
     _git(repo, "worktree", "prune")
     if wt_path.exists():
         shutil.rmtree(wt_path)
-    if branch_exists(repo, branch):
+    if detached or not branch:
+        args = ["worktree", "add", "--detach", str(wt_path)] + ([branch] if branch else [])
+        r = _git(repo, *args)
+    elif branch_exists(repo, branch):
         r = _git(repo, "worktree", "add", str(wt_path), branch)
     else:
         r = _git(repo, "worktree", "add", "-b", branch, str(wt_path))
@@ -131,3 +134,16 @@ def merge_squash(repo: Path, branch: str, message: str) -> ProcResult:
         return r
     r2 = _git(repo, "commit", "-m", message)
     return r2
+
+
+def revert(repo: Path, sha: str) -> ProcResult:
+    return _git(repo, "revert", "--no-edit", sha)
+
+
+def abort_revert(repo: Path) -> ProcResult:
+    return _git(repo, "revert", "--abort")
+
+
+def remote_url(repo: Path, name: str = "origin") -> Optional[str]:
+    r = _git(repo, "config", f"remote.{name}.url")
+    return r.out.strip() if r.code == 0 and r.out.strip() else None

@@ -122,7 +122,8 @@ def head(text: str, n: int = 1200) -> str:
 
 
 def slugify(s: str, fallback: str = "seed") -> str:
-    s = re.sub(r"[^0-9A-Za-z\-_]+", "-", s).strip("-")
+    """ディレクトリ名へ変換。英数字と \w (日本語などの文字) を許し、全部消えたら fallback。"""
+    s = re.sub(r"[^\w\-]+", "-", s, flags=re.UNICODE).strip("-")
     return (s or fallback)[:60].lower()
 
 

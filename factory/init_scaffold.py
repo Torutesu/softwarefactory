@@ -50,6 +50,18 @@ HOLDOUT_README = """\
 
 ステップの期待値フィールド: `expect_exit` (既定 0), `expect_contains`, `expect_not_contains`, `expect_regex`。
 
+UI の画像比較 (オプション): Seed に基準スクショを含めた場合、`expect_png_similar` で
+レンダリング結果との類似判定ができます。基準画像はこの holdout ディレクトリにコピーしてください。
+
+```json
+{"name": "render", "cmd": "curl -s http://127.0.0.1:${FACTORY_PORT}/shot.png -o render.png",
+ "expect_png_similar": {"file": "render.png", "to": "bench-home.png", "ratio": 0.85}}
+```
+
+- `file`: 作業ディレクトリ ($FACTORY_REPO) 基準の実行時画像
+- `to`: holdout ディレクトリ基準の基準画像
+- `ratio`: 合格閾値 (0..1、省略 0.85)
+
 ## 設計のポイント
 - 仕様の主要な機能要件を漏れなく独立に検証すること。
 - 実装リポジトリのテストと重複しない、ブラックボックスな視点で書く。

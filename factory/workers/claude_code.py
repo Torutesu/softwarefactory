@@ -14,13 +14,21 @@ from .base import Worker, WorkerResult
 class ClaudeCodeWorker(Worker):
     name = "claude_code"
 
-    def build_args(self, prompt: str) -> list:
+    def build_args(self, prompt: str, resume: Optional[str] = None) -> list:
         cmd = self.cfg.command or "claude"
-        args = [cmd, "-p", prompt, "--output-format", "json"]
+        args = [cmd]
+        if resume:
+            # 同一 cwd (worktree) で作られたセッションのみ有効
+            args += ["--resume", str(resume)]
+        args += ["-p", prompt, "--output-format", "json"]
         # 非対話で全ツール許可 (社内専用の前提)
         args.append("--dangerously-skip-permissions")
         if self.cfg.model:
             args += ["--model", self.cfg.model]
+        if self.cfg.allowed_tools:
+            args += ["--allowedTools", ",".join(self.cfg.allowed_tools)]
+        if self.cfg.disallowed_tools:
+            args += ["--disallowedTools", ",".join(self.cfg.disallowed_tools)]
         max_turns = getattr(self.cfg, "max_turns", None)
         if max_turns:
             args += ["--max-turns", str(max_turns)]

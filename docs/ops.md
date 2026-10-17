@@ -58,7 +58,14 @@ bin/factory mission new "orders API の500バグ修正" --project my-svc --seed 
   "worker_order": ["claude_code", "opencode", "mock"],
   "judge_worker": "claude_code",
   "workers": {
-    "claude_code": { "type": "claude", "model": "sonnet", "timeout": 1800, "daily_call_limit": 60 },
+    "claude_code": {
+      "type": "claude", "model": "sonnet", "timeout": 1800,
+      "daily_call_limit": 60,
+      "window_call_limit": 30, "window_minutes": 300,
+      "resume": true,
+      "allowed_tools": ["Bash", "Edit", "Write", "Read", "Grep", "Glob"],
+      "disallowed_tools": ["WebSearch"]
+    },
     "opencode":    { "type": "opencode", "timeout": 2400 }
   }
 }
@@ -66,11 +73,54 @@ bin/factory mission new "orders API の500バグ修正" --project my-svc --seed 
 
 - 朝イチで `bin/factory worker ping` を叩き、CLI の生存と使用量を確認。
 - `bin/factory usage --days 7` で日次の呼び出し・トークン・コストを見る。
-- 枠が逼迫したら `daily_call_limit` を下げる / `worker_order` の先頭を `opencode` に変える。
-  quota 系エラーが Router で検出され、自動でフォールバックする。
+- 枠が逼迫したら `daily_call_limit` / `window_call_limit` を下げる (例: 5時間窓で30回)。
+  超過したワーカーは Router が候補の後ろに回し、quota エラー時も自動フォールバックする。
 - 特定ミッションだけ別 worker で回したい: `--worker opencode`。
+- ミッション単位のモデル: `mission new ... --model opus` (config の model を上書き)。
+- 並列実行: `run-all --parallel 3`。ミッションごとに worktree とポートが分かれる
+  (ポートは使用中なら空きポートを自動選択)。
+- セッション継続: `resume: true` のワーカーは反復 2 回目以降、前反復のセッション
+  (`--resume <id>` / `--session <id>`) に続けて相談する。フォールバックでワーカーが
+  変わった場合は継続しない (文脈は prompt 内の要約で引き継がれる)。
 
-## 高リスクのミッション
+## シグナルの取り込み (Ingest / Webhook)
+
+```bash
+# 手動: 素材/URL を Seed 化し、--project があればミッションも作る
+bin/factory ingest ./tickets/UX-231 --project demo_app --title "一覧の絞り込み" --kind update
+bin/factory ingest https://example.com/feedback/1234 --title "UI 改善の投稿"
+
+# 常駐: 監視/Slack/Teams からの POST を受けて Seed 化 → ミッション化 → 実行まで
+bin/factory listen --port 8787 --bind 127.0.0.1 --project demo_app --auto-create
+#   POST /signals  {"title","body","source","project","files"}   / GET /health
+
+bin/factory signals          # 取り込んだシグナル一覧
+```
+
+listener のログは `.factory/listener.log`、取り込み履歴は state.json の `signals` に残る。
+外部システム側の Webhook URL 例: `http://127.0.0.1:8787/signals`。
+
+## マージ後: カナリア検証と PR
+
+```bash
+bin/factory merge M... --yes
+bin/factory canary M...            # main 先頭を一時 worktree で build/test/シナリオ再実行
+bin/factory canary M... --fix --run-complete
+#   FAIL 時: main 上の該当 squash コミットを revert → 失敗要約を Seed 化 →
+#   再ミッション作成 (priority=1) → 即実行
+bin/factory pr M...                # origin + gh があれば PR、無ければ reports/pr-draft.md
+```
+
+カナリアはマージが原因で main が壊れた場合の早期発見・自動ロールバック用。
+revert は未コミット変更があると中止する (安全第一)。
+
+## ホールドアウトの保守
+
+- シナリオ一覧: `bin/factory holdout list M...`
+- 陳腐化したら再生成: `bin/factory holdout regen M...` (done ミッションは `--force` 必要)。
+  既存 SC-*.json とヘルパーを掃除してから再生成する。実装側 worktree には影響なし。
+- UI 比較シナリオ: Seed に基準スクショ (PNG) を入れ、holdout にコピーして
+  `expect_png_similar` を使う (holdout/README.md 参照)。</think>## 高リスクのミッション
 
 削除系・本番近接の作業は `--risk high` で作る:
 

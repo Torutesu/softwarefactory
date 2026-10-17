@@ -47,6 +47,8 @@ class Mission:
     priority: int = 5
     max_iterations: int = 3
     pass_score: int = 80
+    model: str = ""  # ミッション単位のモデル上書き (空なら config のまま)
+    session: dict = field(default_factory=dict)  # {"worker":..., "session_id":...} セッション継続用
     created_utc: str = field(default_factory=now_utc_iso)
     updated_utc: str = field(default_factory=now_utc_iso)
     notes: str = ""
@@ -150,6 +152,18 @@ class Factory:
         st["events"] = st["events"][-1000:]
         self.save_state(st)
 
+    def add_signal(self, seed: str, source: str, mission: str = "", detail: str = "") -> None:
+        st = self.state()
+        st.setdefault("signals", []).append({
+            "ts": now_utc_iso(),
+            "seed": seed,
+            "source": source,
+            "mission": mission,
+            "detail": detail[:300],
+        })
+        st["signals"] = st["signals"][-2000:]
+        self.save_state(st)
+
     # ---------- missions ----------------------------------------------
     def create_mission(
         self,
@@ -161,6 +175,7 @@ class Factory:
         priority: int = 5,
         max_iterations: int = 3,
         pass_score: int = 80,
+        model: str = "",
         notes: str = "",
     ) -> Mission:
         mid = new_mission_id()
@@ -177,6 +192,7 @@ class Factory:
             priority=priority,
             max_iterations=max_iterations,
             pass_score=pass_score,
+            model=model,
             notes=notes,
         )
         self.save_mission(m)

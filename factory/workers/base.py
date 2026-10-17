@@ -49,23 +49,26 @@ def classify_failure(stdout: str, stderr: str) -> str:
 
 
 class Worker:
-    """非対話 CLI ワーカーの基底。サブクラスは build_args / parse_output を実装。"""
+    """非対話 CLI ワーカーの基底。サブクラスは build_args / parse_output を実装。
+
+    resume: 前セッションの ID (config.resume が有効なときのみ使用)。
+    """
 
     name = "base"
 
     def __init__(self, cfg):
         self.cfg = cfg
 
-    def build_args(self, prompt: str) -> list:
+    def build_args(self, prompt: str, resume: Optional[str] = None) -> list:
         raise NotImplementedError
 
     def parse_output(self, pr: ProcResult) -> WorkerResult:
         raise NotImplementedError
 
     # ------------------------------------------------------------------
-    def run(self, prompt: str, cwd: Path, timeout: Optional[int] = None) -> WorkerResult:
+    def run(self, prompt: str, cwd: Path, timeout: Optional[int] = None, resume: Optional[str] = None) -> WorkerResult:
         timeout = timeout or self.cfg.timeout
-        args = self.build_args(prompt)
+        args = self.build_args(prompt, resume=resume)
         pr = run_cmd(args, cwd=cwd, timeout=timeout)
         res = self.parse_output(pr)
         res.seconds = pr.seconds

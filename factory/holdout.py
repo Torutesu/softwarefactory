@@ -25,6 +25,7 @@ class Step:
     expect_contains: Optional[str] = None
     expect_not_contains: Optional[str] = None
     expect_regex: Optional[str] = None
+    expect_png_similar: Optional[dict] = None  # {"file":..., "to":..., "ratio":0.85}
     timeout: int = 120
 
     def to_dict(self) -> dict:
@@ -68,6 +69,18 @@ def load_scenarios(factory: Factory, mid: str) -> List[Scenario]:
     return out
 
 
+_UI_BLOCK = """\
+```json
+{
+  "steps": [
+    {"name": "render", "cmd": "curl -s http://127.0.0.1:${FACTORY_PORT}/shot.png -o render.png",
+     "expect_png_similar": {"file": "render.png", "to": "bench-home.png", "ratio": 0.85}}
+  ]
+}
+```
+"""
+
+
 def holdout_prompt(factory: Factory, m: Mission, spec_text: str) -> str:
     seed_dir = factory.seeds_dir / m.seed if m.seed else factory.seeds_dir
     files = list_seed_files(seed_dir)
@@ -104,12 +117,22 @@ def holdout_prompt(factory: Factory, m: Mission, spec_text: str) -> str:
 }}
 ```
 
+## UI 画像比較 (任意)
+UI を持つ製品で Seed に基準スクショ (PNG) が同梱されている場合、`expect_png_similar`
+でレンダリング結果との類似判定が使える:
+
+{_UI_BLOCK}
+
+- `file`: 作業ディレクトリ ($FACTORY_REPO) から見た実行時画像のパス
+- `to`: holdout ディレクトリから見た基準画像のパス — Seed のスクショを `cp` で holdout に置いてよい
+- `ratio`: 合格類似閾値 (省略 0.85)。グレースケール/パレット/RGBA に対応
+
 ## 制約
 - シナリオは spec.md の機能要件を独立に検証できること。主要な要件を漏れなくカバーすること。
 - コマンドは非対話で動作するもののみ (curl, jq, python3, grep, diff など)。
 - 作業ディレクトリは実装リポジトリ: {Path(m.repo).resolve() if m.repo and Path(m.repo).exists() else "(greenfield: 未作成)"}
   環境変数 $FACTORY_REPO に同じパス、$FACTORY_PORT にアプリの待受ポートが入る。
-- 実装リポジトリのファイルは書き換えない (シナリオJSONの作成のみ)。
+- 実装リポジトリのファイルは書き換えない (シナリオJSONの作成と Seed からの基準画像コピーのみ)。
 - 起動が必要な検証では、spec.md の run コマンドが $FACTORY_PORT で待ち受ける前提で curl を書く。
 - 最終メッセージは 3〜5 行の要約 (シナリオの網羅ポイント)。
 """

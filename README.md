@@ -60,7 +60,12 @@ Harness → レポート → マージ) を即座に体験できます。
       "type": "claude",
       "model": "sonnet",
       "timeout": 1800,
-      "daily_call_limit": 60
+      "daily_call_limit": 60,
+      "window_call_limit": 30,
+      "window_minutes": 300,
+      "resume": true,
+      "allowed_tools": ["Bash", "Edit", "Write", "Read", "Grep", "Glob"],
+      "disallowed_tools": ["WebSearch"]
     },
     "opencode": { "type": "opencode", "model": "", "timeout": 1800 }
   },
@@ -70,24 +75,68 @@ Harness → レポート → マージ) を即座に体験できます。
 ```
 
 - `claude_code` … `claude -p "<prompt>" --output-format json --dangerously-skip-permissions`
-- `opencode` … `opencode run "<prompt>"`
-- **フォールバック**: 予算超過 (`daily_call_limit`)・quota/timeout エラー時は次のワーカーへ自動切替
-- 使用量は日次で `.factory/usage/` に記録 (`factory usage` で表確認)
+- `opencode` … `opencode run "<prompt>"` (config `args` に `--format json` 等を追加可)
+- **フォールバック**: 予算超過・quota/timeout エラー時は次のワーカーへ自動切替
+- **二段予算**: `daily_call_limit` (日次) + `window_call_limit`/`window_minutes` (例: 5時間窓) の
+  両方を監視し、超過ワーカーは候補の後ろに回す (サブスク枠.Consumer保護)
+- `allowed_tools` / `disallowed_tools` … Claude Code の `--allowedTools` / `--disallowedTools` に透過指定
+- `resume: true` … 反復2回目以降、同一ワーカーのセッションを継続 (`--resume <session-id>`)
+- ミッション単位のモデル指定: `factory mission new ... --model opus` で config を上書き
+- 使用量は `.factory/usage/` に日次+呼び出し時刻を記録 (`factory usage` で表確認)
+
+## シグナル → Seed → ミッション (Ingest)
+
+外部/日常のシグナルを Seed 化する窓口が 3 種あります。
+
+```bash
+# 1) 手動取込: ディレクトリ/URL を seeds/ に化け物なく放り込む
+factory ingest ./cstdint-tickets/SEARCH-123 --name search-slow
+factory ingest https://teams.example.com/blog/idea-post --title "アイデア投稿"
+
+# 2) 続けてミッションまで作る (--run で実行まで一括)
+factory ingest ./materials/shopping-ui --project demo_app --kind greenfield --run
+
+# 3) Webhook 受付 (サーバ常駐)。Slack/Teams/監視ツールから POST する
+factory listen --port 8787 --project demo_app --auto-create
+#   POST /signals  {"title": "...", "body": "...", "source": "...",
+#                   "project": "demo_app", "files": {"note.md": "text"}}
+#   GET  /health
+```
+
+`--auto-create` で受信時ミッション自動作成、`--auto-run` で実行まで自動。取り込まれた
+シグナルは `factory signals` で一覧できます。
+
+## マージ後のカナリア & PR
+
+```bash
+factory merge <id> --yes     # squash マージ
+factory canary <id>          # main 先頭を一時 worktree で再検証 (PASS/FAIL レポート)
+factory canary <id> --fix    # FAIL 時: 当該コミット revert + 失敗要約を Seed 化 + 再ミッション作成
+factory canary <id> --fix --run-complete   # 再ミッションの実行まで自動
+factory pr <id>              # origin + gh があれば PR 作成、無ければ reports/pr-draft.md
+```
 
 ## コマンド一覧 (`bin/factory`)
 
 | コマンド | 説明 |
 |---|---|
 | `init <root> [--demo]` | ファクトリの初期化 |
-| `status` | ミッション一覧 |
+| `status [--watch [秒]]` | ミッション一覧 / ダッシュボード |
+| `signals` | 取り込んだシグナルの一覧 |
 | `worker ping` | claude / opencode / mock の疎通確認 |
 | `seed add <src> [--name]` | Seed (材料一式) を追加 |
-| `mission new <title> --project NAME \|--repo PATH [--seed S] [--kind greenfield\|update]` | ミッション作成 |
+| `ingest <src\|url> [--project] [--run]` | Seed 化 (+ ミッション作成~実行まで一括) |
+| `listen [--port] [--auto-create]` | Webhook リスナー起動 |
+| `mission new <title> --project NAME \|--repo PATH [--seed S] [--kind] [--model M]` | ミッション作成 |
 | `run <id> [--worker W] [--confirm] [--iterations N]` | 自律ループ実行 |
-| `run-all` | queued ミッションを順に実行 |
+| `run-all [--parallel N]` | queued ミッションを順に/並列に実行 |
 | `validate <id> [--judge]` | 検証のみ (Worker を呼ばない) |
+| `holdout <list\|regen> <id>` | シナリオの一覧 / 再生成 (陳腐化リフレッシュ) |
 | `report <id>` | 最終レポート表示 |
 | `merge <id> [--yes]` | worktree を main に squash マージ |
+| `canary <id> [--fix] [--run-complete]` | main 上での再検証 + リカバリ |
+| `pr <id> [--base B]` | PR 作成 (gh 無ければ下書き) |
+| `compare-img a.png b.png` | 2枚の PNG 類似度 |
 | `usage [--days N]` | 使用量レポート |
 
 ## ディレクトリ構成
@@ -131,7 +180,7 @@ my-factory/                 ← factory init で作る実行環境 (ここがフ
 |---|---|---|
 | 1 | 人間が Seed → 工場が実装・検証 → 結果返却 | ✅ `mission new` → `run` → `report` → `merge` |
 | 2 | 工場が提案を生成して回す | ✅ 終了時に judge が `priorities` (改善シグナル) を state.json へ記録 |
-| 3 | シグナルが自動で Mission に | ◐ `factory seed add` (手動)。自動化は roadmap |
-| 4 | 人間は異常時のみ介入 | ◐ `--risk high` ゲート + マージ確認は現状必須 |
+| 3 | シグナルが自動で Mission に | ✅ `ingest` / `listen --auto-create` / カナリア自動再ミッション |
+| 4 | 人間は異常時のみ介入 | ◐ `--risk high` ゲート + マージ確認 + `canary` は明示実行 |
 
 詳細は `docs/design.md` / `docs/ops.md` / `docs/roadmap.md` を参照してください。

@@ -10,6 +10,7 @@ import json
 import re
 import time
 from pathlib import Path
+from typing import Optional
 
 from ..util import run_shell
 from .base import Worker, WorkerResult
@@ -20,7 +21,7 @@ MOCK_BLOCK = re.compile(r"```mock-action\s*\n(.*?)\n```", re.S)
 class MockWorker(Worker):
     name = "mock"
 
-    def build_args(self, prompt: str) -> list:
+    def build_args(self, prompt: str, resume: Optional[str] = None) -> list:
         cmd = self.cfg.command or "true"
         return [cmd]
 
@@ -28,7 +29,7 @@ class MockWorker(Worker):
         return WorkerResult(worker=self.name, ok=True, text="")
 
     # ------------------------------------------------------------------
-    def run(self, prompt: str, cwd: Path, timeout=None) -> WorkerResult:
+    def run(self, prompt: str, cwd: Path, timeout=None, resume=None) -> WorkerResult:
         t0 = time.time()
         actions = [json.loads(m.group(1)) for m in MOCK_BLOCK.finditer(prompt)]
         logs = []

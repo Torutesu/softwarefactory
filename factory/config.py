@@ -28,6 +28,11 @@ class WorkerConfig:
     model: str = ""  # 例: sonnet / anthropic/claude-sonnet-4-5
     timeout: int = 1800  # 秒
     daily_call_limit: int = 0  # 0 = 無制限 (サブスク枠の保護用)
+    window_call_limit: int = 0  # 0 = 無制限 (rolling window の上限)
+    window_minutes: int = 300  # rolling window の幅 (分)。サブスク系は 300 = 5h
+    resume: bool = False  # セッション継続 (前反復の続きから)
+    allowed_tools: List[str] = field(default_factory=list)  # claude: --allowedTools
+    disallowed_tools: List[str] = field(default_factory=list)  # claude: --disallowedTools
 
     def resolved_command(self) -> str:
         if self.command:
@@ -104,6 +109,11 @@ class Config:
                 model=raw.get("model", ""),
                 timeout=int(raw.get("timeout", 1800)),
                 daily_call_limit=int(raw.get("daily_call_limit", 0)),
+                window_call_limit=int(raw.get("window_call_limit", 0)),
+                window_minutes=int(raw.get("window_minutes", 300)),
+                resume=bool(raw.get("resume", False)),
+                allowed_tools=list(raw.get("allowed_tools") or []),
+                disallowed_tools=list(raw.get("disallowed_tools") or []),
             )
         return cls(
             root=data.get("root") or os.getcwd(),
