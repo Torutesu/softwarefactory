@@ -46,28 +46,43 @@ Seed (`seeds/demo-app`) を自動投入します。CLI が無い環境では **M
 決定的にパッチを当てるため、パイプライン全体 (仕様 → ホールドアウト → 実装 →
 Harness → レポート → マージ) を即座に体験できます。
 
-## 本番モードへの切替
+## 本番モードへの切替 (サブスクを既定にする)
 
-`.factory/config.json` の `worker_order` で優先順を指定します (基本はサブスク枠の Claude Code 優先)。
+**既定は"サブスクの枠"で使う構成です** — API キー (従量課金) ではなく、ログイン済み
+プラン (Claude Pro/Max: `claude login` / ChatGPT Plus・Pro: `codex login`) をワーカーが
+そのまま使います。`auth: "subscription"` がデフォルトで、このときオーケストレータは
+`ANTHROPIC_API_KEY` / `OPENAI_API_KEY` を子プロセス環境から外すため、キーが環境に
+あっても CLI は必ずサブスクの枠で動きます (API 課金にならない)。
+
+対応ワーカー:
+
+| worker | 実行方法 | auth 既定 | 担当できる用途 |
+|---|---|---|---|
+| `claude_code` | `claude -p` | subscription | spec / holdout / dev / judge |
+| `codex` (OpenAI) | `codex exec` | subscription | spec / holdout / dev / judge |
+| `opencode` | `opencode run` | login 設定に準ずる | spec / holdout / dev / judge |
+| `openrouter` | Chat Completions API 直呼び (HTTP) | api_key (`OPENROUTER_API_KEY`) | spec / holdout / judge (ツール実行不可) |
+| `mock` | Seed 同梱の答えキーで決定的にパッチ | — | 全用途 (デモ/CI) |
 
 ```json
 {
   "use_worker": "auto",
-  "worker_order": ["claude_code", "opencode", "mock"],
+  "worker_order": ["claude_code", "codex", "opencode", "openrouter", "mock"],
   "judge_worker": "claude_code",
   "workers": {
     "claude_code": {
-      "type": "claude",
-      "model": "sonnet",
-      "timeout": 1800,
-      "daily_call_limit": 60,
-      "window_call_limit": 30,
-      "window_minutes": 300,
+      "type": "claude", "auth": "subscription", "model": "sonnet",
+      "timeout": 1800, "daily_call_limit": 60, "window_call_limit": 30, "window_minutes": 300,
       "resume": true,
       "allowed_tools": ["Bash", "Edit", "Write", "Read", "Grep", "Glob"],
       "disallowed_tools": ["WebSearch"]
     },
-    "opencode": { "type": "opencode", "model": "", "timeout": 1800 }
+    "codex": {
+      "type": "codex", "auth": "subscription", "model": "gpt-5.2",
+      "daily_call_limit": 40, "window_call_limit": 20
+    },
+    "opencode": { "type": "opencode", "timeout": 2400 },
+    "openrouter": { "type": "openrouter", "model": "anthropic/claude-sonnet-4.5" }
   },
   "max_attempts": 2,
   "judge_pass_score": 80
@@ -75,14 +90,37 @@ Harness → レポート → マージ) を即座に体験できます。
 ```
 
 - `claude_code` … `claude -p "<prompt>" --output-format json --dangerously-skip-permissions`
-- `opencode` … `opencode run "<prompt>"` (config `args` に `--format json` 等を追加可)
-- **フォールバック**: 予算超過・quota/timeout エラー時は次のワーカーへ自動切替
-- **二段予算**: `daily_call_limit` (日次) + `window_call_limit`/`window_minutes` (例: 5時間窓) の
-  両方を監視し、超過ワーカーは候補の後ろに回す (サブスク枠.Consumer保護)
+- `codex` … `codex exec --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check`
+- **フォールバックレーン**: Claude 枠枯渇 → Codex 枠 → OpenCode → OpenRouter
+  (テキスト用途、要点/spec/judge) → mock。quota エラーは自動検知して切り替える
+- **二段予算**: `daily_call_limit` (日次) + `window_call_limit`/`window_minutes`
+  (例: 5時間窓) の両方を監視し、超過ワーカーは候補の後ろに回す (サブスク枠の保護)
 - `allowed_tools` / `disallowed_tools` … Claude Code の `--allowedTools` / `--disallowedTools` に透過指定
 - `resume: true` … 反復2回目以降、同一ワーカーのセッションを継続 (`--resume <session-id>`)
 - ミッション単位のモデル指定: `factory mission new ... --model opus` で config を上書き
 - 使用量は `.factory/usage/` に日次+呼び出し時刻を記録 (`factory usage` で表確認)
+
+## 自律運転 (ファクトリークロック)
+
+1 回の `tick` が「取込 → 実行 → 出荷 → カナリア → 修復」を一巡します。
+
+```bash
+factory tick --dry-run              # 計画だけ見る
+factory tick                        # 1 巡だけ (cron 併用可)
+factory supervisor --interval 300   # 常駐で tick を回し続ける
+```
+
+`autonomy_level` で自律度を段階的に上げられる (既定 1 = 実行と報告のみ):
+
+| level | 挙動 |
+|---|---|
+| 1 | queue されたミッションを実行・報告 |
+| 2 | + low リスク完了ミッションの**自動マージ**と**自動カナリア** |
+| 3 | + 未割当 Seed からミッションを**自動作成** (`autopilot_project`) |
+| 4 | + カナリア失敗時に **revert + 修復ミッション自動実行** (深度上限 `max_repair_rounds`) |
+
+人間は `needs_human` に積まれた項目だけ見ます (高リスク・反復上限・修復ラウンド上限・
+予算枯渇・project 未確定の Seed)。要約は `notify_url` への Webhook POST でも受け取れます。
 
 ## シグナル → Seed → ミッション (Ingest)
 
@@ -138,6 +176,8 @@ factory pr <id>              # origin + gh があれば PR 作成、無ければ
 | `pr <id> [--base B]` | PR 作成 (gh 無ければ下書き) |
 | `compare-img a.png b.png` | 2枚の PNG 類似度 |
 | `usage [--days N]` | 使用量レポート |
+| `tick [--dry-run]` | ファクトリークロック 1巡 (取込→実行→出荷→カナリア→修復) |
+| `supervisor [--interval N]` | tick を常駐で回す (自律運転) |
 
 ## ディレクトリ構成
 
@@ -180,7 +220,7 @@ my-factory/                 ← factory init で作る実行環境 (ここがフ
 |---|---|---|
 | 1 | 人間が Seed → 工場が実装・検証 → 結果返却 | ✅ `mission new` → `run` → `report` → `merge` |
 | 2 | 工場が提案を生成して回す | ✅ 終了時に judge が `priorities` (改善シグナル) を state.json へ記録 |
-| 3 | シグナルが自動で Mission に | ✅ `ingest` / `listen --auto-create` / カナリア自動再ミッション |
-| 4 | 人間は異常時のみ介入 | ◐ `--risk high` ゲート + マージ確認 + `canary` は明示実行 |
+| 3 | シグナルが自動で Mission に | ✅ `ingest` / `listen --auto-create` / `tick` (level 3+ の intake) |
+| 4 | 人間は異常時のみ介入 | ✅ `supervisor` + `autonomy_level 4`: 自動マージ・カナリア・revert+修復。高リスク/予算/修復上限でエスカレーション |
 
 詳細は `docs/design.md` / `docs/ops.md` / `docs/roadmap.md` を参照してください。

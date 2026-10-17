@@ -1,6 +1,7 @@
 """Worker 共通の結果型と基底クラス。"""
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -19,6 +20,27 @@ QUOTA_PATTERNS = [
     r"overloaded",
     r"429",
 ]
+
+# auth="subscription" のときは CLI がログイン済みプラン (Claude Pro/Max, ChatGPT
+# Plus/Pro など) を使うよう、課金向けの API キーを環境から外す (キーがあるとそちら優先で
+# API 課金されてしまうため)。
+AUTH_SCRUB_KEYS = (
+    "ANTHROPIC_API_KEY",
+    "ANTHROPIC_AUTH_TOKEN",
+    "ANTHROPIC_API_TOKEN",
+    "OPENAI_API_KEY",
+)
+
+
+def child_env_for(worker_cfg, extra: Optional[dict] = None) -> dict:
+    """サブスク既定: API キーを外した環境を作る。auth="api_key" では素通し。"""
+    env = dict(os.environ)
+    if getattr(worker_cfg, "auth", "subscription") == "subscription":
+        for k in AUTH_SCRUB_KEYS:
+            env.pop(k, None)
+    if extra:
+        env.update({k: str(v) for k, v in extra.items()})
+    return env
 
 
 @dataclass
@@ -69,7 +91,7 @@ class Worker:
     def run(self, prompt: str, cwd: Path, timeout: Optional[int] = None, resume: Optional[str] = None) -> WorkerResult:
         timeout = timeout or self.cfg.timeout
         args = self.build_args(prompt, resume=resume)
-        pr = run_cmd(args, cwd=cwd, timeout=timeout)
+        pr = run_cmd(args, cwd=cwd, timeout=timeout, env=child_env_for(self.cfg))
         res = self.parse_output(pr)
         res.seconds = pr.seconds
         res.worker = self.name

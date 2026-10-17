@@ -48,33 +48,38 @@ bin/factory seed add ./bug-report-dir --name bug-001
 bin/factory mission new "orders API の500バグ修正" --project my-svc --seed bug-001 --kind update
 ```
 
-## Worker の設定 (サブスク枠を保護する)
+## Worker の設定 (サブスクの枠を既定にする)
+
+**既定はサブスク (ログイン済みプラン)** です。`claude login` / `codex login` を済ませて
+おけば API キー不要。オーケストレータは `auth: "subscription"` (既定) のとき
+`ANTHROPIC_API_KEY` / `OPENAI_API_KEY` を子プロセスから外すので、環境にキーが
+あってそちらに流れる事故が起きません。キー課金にしたい worker だけ
+`auth: "api_key"` にします (OpenRouter は常に `OPENROUTER_API_KEY`)。
 
 `.factory/config.json`:
 
 ```json
 {
   "use_worker": "auto",
-  "worker_order": ["claude_code", "opencode", "mock"],
+  "worker_order": ["claude_code", "codex", "opencode", "openrouter", "mock"],
   "judge_worker": "claude_code",
   "workers": {
-    "claude_code": {
-      "type": "claude", "model": "sonnet", "timeout": 1800,
-      "daily_call_limit": 60,
-      "window_call_limit": 30, "window_minutes": 300,
-      "resume": true,
-      "allowed_tools": ["Bash", "Edit", "Write", "Read", "Grep", "Glob"],
-      "disallowed_tools": ["WebSearch"]
-    },
-    "opencode":    { "type": "opencode", "timeout": 2400 }
+    "claude_code": { "type": "claude", "auth": "subscription", "model": "sonnet",
+                     "timeout": 1800, "daily_call_limit": 60, "window_call_limit": 30 },
+    "codex":       { "type": "codex", "auth": "subscription", "model": "gpt-5.2",
+                     "daily_call_limit": 40, "window_call_limit": 20 },
+    "opencode":    { "type": "opencode", "timeout": 2400 },
+    "openrouter":  { "type": "openrouter", "model": "anthropic/claude-sonnet-4.5" }
   }
 }
 ```
 
-- 朝イチで `bin/factory worker ping` を叩き、CLI の生存と使用量を確認。
+- 朝イチで `bin/factory worker ping` を叩き、CLI の生存 (`[ok] claude_code: (auth=subscription)` 等) と
+  `OPENROUTER_API_KEY` の有無を確認。
 - `bin/factory usage --days 7` で日次の呼び出し・トークン・コストを見る。
 - 枠が逼迫したら `daily_call_limit` / `window_call_limit` を下げる (例: 5時間窓で30回)。
-  超過したワーカーは Router が候補の後ろに回し、quota エラー時も自動フォールバックする。
+  超過したワーカーは Router が候補の後ろに回し、quota エラー時も自動フォールバックする
+  (Claude 枠 → Codex 枠 → OpenCode → OpenRouter → mock)。
 - 特定ミッションだけ別 worker で回したい: `--worker opencode`。
 - ミッション単位のモデル: `mission new ... --model opus` (config の model を上書き)。
 - 並列実行: `run-all --parallel 3`。ミッションごとに worktree とポートが分かれる
@@ -112,7 +117,43 @@ bin/factory pr M...                # origin + gh があれば PR、無ければ 
 ```
 
 カナリアはマージが原因で main が壊れた場合の早期発見・自動ロールバック用。
-revert は未コミット変更があると中止する (安全第一)。
+revert は未コミット変更があると中止する (安全第一)。main が既に revert 済みなら
+二重 revert をせず `already-reverted` として扱う。
+
+## 自律運転: tick (ファクトリークロック) と supervisor
+
+1 回の tick は「取込 → 実行 → 出荷 → カナリア → 修復」の一巡:
+
+```bash
+bin/factory tick --dry-run            # 計画だけ表示 (state 変化なし)
+bin/factory tick                      # 1 巡だけ回す (cron に登録する形)
+bin/factory supervisor --interval 300 # 常駐で tick を回し続ける
+```
+
+自律度は `config.autonomy_level` (1..4) で段階導入:
+
+| level | 挙動 |
+|---|---|
+| 1 | 人間が queue したミッションを実行・報告 |
+| 2 | + low リスク完了ミッションを自動マージし、マージ後に自動カナリア |
+| 3 | + 未割当 Seed (`seeds/` に置いたシグナル) からミッション自動作成。割当先は `autopilot_project` (未設定なら project が 1 つだけのときそれ) |
+| 4 | + カナリア失敗時 revert + 修復ミッションを即実行 (完全自動) |
+
+- **エスカレーション**: 高リスク・予算枯渇・修復ラウンド上限 (`max_repair_rounds`)・
+  Seed の project 未確定・反復上限は `needs_human` に積まれ、tick の要約 JSON と
+  `state.json` の events に残る。`notify_url` を設定すると要約を Webhook POST 。
+- **逆振れ防止**: 修復ミッションには `repair-of:<id>` が付くので、修復の修復が
+  `max_repair_rounds` (既定 1) を超えると自動出荷されない。
+- **冪等**: tick は 2 巡連続で回しても 2 巡目は無活動で終わる (全 Seed 割当済み・
+  queued なし)。cron/常駐どちらでも安全。
+
+cron 例 (5 分ごとに一巡):
+
+```
+*/5 * * * * cd /path/to/my-factory && /path/to/bin/factory tick
+```
+
+listener (`bin/factory listen`) は常駐の Webhook 受付として supervisor と並行運用する。
 
 ## ホールドアウトの保守
 

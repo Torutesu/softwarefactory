@@ -127,6 +127,7 @@ class TestWorkerArgs(unittest.TestCase):
         r = Router(cfg, Usage(Path(tempfile.mkdtemp())))
         r.worker_for = lambda n: FakeWorker(cfg)
         r.available_names = lambda: ["mock"]
+        r.caps_for = lambda n: ("spec", "holdout", "dev", "judge")
         r.run("dev", Path("."), "p", resume=("mock", "sess-abc"))
         self.assertEqual(captured["resume"], "sess-abc")
 
@@ -155,6 +156,7 @@ class TestWorkerArgs(unittest.TestCase):
 
         r.worker_for = for_name
         r.available_names = lambda: ["claude_code", "mock"]
+        r.caps_for = lambda n: ("spec", "holdout", "dev", "judge")
         r.run("dev", Path("."), "p", resume=("mock", "sess-abc"))
         self.assertIsNone(captured["resume"])
 

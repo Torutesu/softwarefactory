@@ -67,6 +67,37 @@ CLI 実装差異:
   FAIL 時は当該 squash コミットを revert し、失敗要約を Seed 化して再ミッションを立てる
   (`--run-complete` で即実行)。revert は worktree が dirty だと中止する。
 
+## サブスク既定の認証 (auth)
+
+- `WorkerConfig.auth = "subscription"` (既定): CLI ワーカーを**ログイン済みプラン**
+  (Claude Pro/Max, ChatGPT Plus/Pro) で実行するため、`ANTHROPIC_API_KEY` /
+  `OPENAI_API_KEY` を子プロセス環境から除去する。環境変数にキーがあっても
+  CLI はサブスク側の認証に倒れる (意図しない API 課金を防ぐ)。
+- `auth = "api_key"`: 環境変数のキーを使う従量課金モード (OpenRouter は常にこれ)。
+- OpenRouter は Chat Completions を直呼び (urllib)。ツール実行がないため
+  Router は spec/holdout/judge (テキスト生成) にのみ割当て、dev (実装) には使わない。
+
+## ファクトリークロック (tick / supervisor) の設計
+
+「工場として自律している」ことを確認する検査対象は 3 つ: **継続性** (誰もいなくても
+仕事が流れ続けるか)、**出口の自律性** (実装だけでなく出荷・失敗回収まで終わるか)、
+**逆振れしないこと** (失敗への自動対応が失敗を増幅しないこと)。
+
+- **1 巡 = tick**: 取込 (intake) → 実行 (execute) → 出荷 (deliver: merge + canary +
+  repair) の 3 段。各段は独立していて、相互の失敗でクロックが止まらない
+  (`supervise` は tick ごとに例外を握って継続する)。
+- **継続性**: intake は `seeds/` に置かれた未割当 Seed を常に拾う (level>=3)。
+  execute は queued を並列 (`tick_concurrency`)・優先度で処理する。予算は
+  「全ワーカーが日次/窓上限を超えたときのみ」実行を差し控える (一部超過なら
+  ルーターの後ろ回しが効くので止めない)。
+- **出口の自律性**: merge と canary までも deliver 段が実施する (level>=2)。
+  高リスクだけ人間の確認に残す。
+- **逆振れ防止**: カナリア失敗 → revert → 修復ミッション (`repair-of:` 鎖) →
+  自動出荷…の往復は `max_repair_rounds` (既定 1) で深度制限する。超えたら
+  `needs_human`。revert の二重適用もする。
+- **冪等**: 全 Seed 割当済み & queued & 未出荷なし状態では tick は無活動で終わる。
+  cron / 常駐 / 手動のどの走らせ方でも結果が同じになる。
+
 ## 検証ハーネスの追加機能
 
 - 並列実行でも安全: ポートは `health_url` の番号を優先しつつ、使用中なら空きポートを選び、

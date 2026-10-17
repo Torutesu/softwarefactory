@@ -15,29 +15,38 @@ from typing import Dict, List, Optional
 DEFAULT_TEST_CMD = "python3 -m unittest discover -s tests -p 'test_*.py' -t ."
 DEFAULT_MAIN_BRANCH = "main"
 
-DEFAULT_WORKER_ORDER = ["claude_code", "opencode", "mock"]
+# サブスク (ログイン済みプラン) を既定とする: codex == OpenAI (ChatGPT Plus/Pro/Team),
+# openrouter は API キー制。mock は最後のフォールバック。
+DEFAULT_WORKER_ORDER = ["claude_code", "codex", "opencode", "openrouter", "mock"]
 
 
 @dataclass
 class WorkerConfig:
     """worker種別ごとの設定。"""
 
-    type: str = "claude"  # claude | opencode | mock
-    command: str = ""  # 空なら type から決定
+    type: str = "claude"  # claude | codex | opencode | openrouter | mock
+    command: str = ""  # 空なら type から決定 (openrouter は CLI なし)
     args: List[str] = field(default_factory=list)  # CLI 追加引数
-    model: str = ""  # 例: sonnet / anthropic/claude-sonnet-4-5
+    model: str = ""  # 例: sonnet / gpt-5.2 / anthropic/claude-sonnet-4.5
     timeout: int = 1800  # 秒
     daily_call_limit: int = 0  # 0 = 無制限 (サブスク枠の保護用)
     window_call_limit: int = 0  # 0 = 無制限 (rolling window の上限)
     window_minutes: int = 300  # rolling window の幅 (分)。サブスク系は 300 = 5h
     resume: bool = False  # セッション継続 (前反復の続きから)
+    auth: str = "subscription"  # subscription (ログイン済みプラン・既定) | api_key
     allowed_tools: List[str] = field(default_factory=list)  # claude: --allowedTools
     disallowed_tools: List[str] = field(default_factory=list)  # claude: --disallowedTools
 
     def resolved_command(self) -> str:
         if self.command:
             return self.command
-        return {"claude": "claude", "opencode": "opencode", "mock": "python3"}.get(self.type, self.type)
+        return {
+            "claude": "claude",
+            "codex": "codex",
+            "opencode": "opencode",
+            "mock": "python3",
+            "openrouter": "",  # CLI なし (HTTP 直呼び)
+        }.get(self.type, self.type)
 
 
 @dataclass
@@ -58,12 +67,16 @@ class ProjectConfig:
 @dataclass
 class Config:
     root: str  # ファクトリ全体の作業ルート (絶対パス)
-    use_worker: str = "auto"  # auto | claude_code | opencode | mock
+    use_worker: str = "auto"  # auto | claude_code | codex | opencode | openrouter | mock
     worker_order: List[str] = field(default_factory=lambda: list(DEFAULT_WORKER_ORDER))
     judge_worker: str = ""  # 空なら worker_order の先頭
     max_attempts: int = 2
     judge_pass_score: int = 80
-    autonomy_level: int = 1  # 1..4 (docs/design.md 参照)
+    autonomy_level: int = 1  # 1..4 (docs/design.md のファクトリークロック参照)
+    autopilot_project: str = ""  # level>=3 の自動ミッション作成先 (未設定なら唯一の project)
+    notify_url: str = ""  # tick の要約を POST する Webhook (空なら印刷のみ)
+    tick_concurrency: int = 2  # tick が並列実行するミッション上限
+    max_repair_rounds: int = 1  # カナリア失敗→修復の自動往復上限 (0 で修復しない)
     projects: Dict[str, ProjectConfig] = field(default_factory=dict)
     workers: Dict[str, WorkerConfig] = field(default_factory=dict)
 
@@ -85,6 +98,10 @@ class Config:
             "max_attempts": self.max_attempts,
             "judge_pass_score": self.judge_pass_score,
             "autonomy_level": self.autonomy_level,
+            "autopilot_project": self.autopilot_project,
+            "notify_url": self.notify_url,
+            "tick_concurrency": self.tick_concurrency,
+            "max_repair_rounds": self.max_repair_rounds,
             "root": self.root,
             "projects": {k: vars(v) for k, v in self.projects.items()},
             "workers": {k: vars(v) for k, v in self.workers.items()},
@@ -112,6 +129,7 @@ class Config:
                 window_call_limit=int(raw.get("window_call_limit", 0)),
                 window_minutes=int(raw.get("window_minutes", 300)),
                 resume=bool(raw.get("resume", False)),
+                auth=raw.get("auth", "subscription"),
                 allowed_tools=list(raw.get("allowed_tools") or []),
                 disallowed_tools=list(raw.get("disallowed_tools") or []),
             )
@@ -123,6 +141,10 @@ class Config:
             max_attempts=int(data.get("max_attempts", 2)),
             judge_pass_score=int(data.get("judge_pass_score", 80)),
             autonomy_level=int(data.get("autonomy_level", 1)),
+            autopilot_project=data.get("autopilot_project", ""),
+            notify_url=data.get("notify_url", ""),
+            tick_concurrency=int(data.get("tick_concurrency", 2)),
+            max_repair_rounds=int(data.get("max_repair_rounds", 1)),
             projects=projects,
             workers=workers,
         )
@@ -144,8 +166,13 @@ class Config:
     def create(cls, root: str, demo: bool = False) -> "Config":
         root = str(Path(root).resolve())
         cfg = cls(root=root, workers={
-            "claude_code": WorkerConfig(type="claude"),
+            # サブスク (ログイン済みプラン) 既定。API キー課金にするなら auth を "api_key" へ。
+            "claude_code": WorkerConfig(type="claude", auth="subscription",
+                                        daily_call_limit=60, window_call_limit=30),
+            "codex": WorkerConfig(type="codex", auth="subscription",
+                                  daily_call_limit=40, window_call_limit=20),
             "opencode": WorkerConfig(type="opencode"),
+            "openrouter": WorkerConfig(type="openrouter", auth="api_key"),
             "mock": WorkerConfig(type="mock"),
         })
         if demo:

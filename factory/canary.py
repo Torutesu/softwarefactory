@@ -79,27 +79,30 @@ def run_canary(factory: Factory, mid: str, cfg=None, fix: bool = False, run_comp
             try:
                 from .loop import run_mission
 
-                run_mission(factory, new_mid, cfg=cfg)
-                result["new_mission_status"] = "done"
+                m2 = run_mission(factory, new_mid, cfg=cfg)
+                result["new_mission_status"] = m2.status
+                result["new_mission_score"] = (m2.iterations[-1].score
+                                               if m2.iterations and m2.iterations[-1].score is not None else None)
             except SystemExit as e:
                 print(f"[canary] auto-run skip: {e}")
     return result
 
 
 def _try_revert(factory: Factory, repo: Path, mid: str) -> str:
-    bad = find_factory_commit(repo, mid)
+    target = find_factory_commit(repo, mid)
     if gitx.status_porcelain(repo):
-        msg = f"revert 中止: {repo} に未コミットの変更があります"
-        print(f"[canary] {msg}", file=sys.stderr)
+        print(f"[canary] revert 中止: {repo} に未コミットの変更があります", file=sys.stderr)
         return "aborted(dirty)"
-    if bad is None:
-        msg = f"revert 中止: {mid} のコミットが見つかりません"
-        print(f"[canary] {msg}", file=sys.stderr)
+    if target is None:
+        print(f"[canary] revert 中止: {mid} のコミットが見つかりません", file=sys.stderr)
         return "not-found"
-    r = gitx.revert(repo, bad)
+    if target.startswith("revert:"):
+        print(f"[canary] revert 不要: main は既に factory: {mid} を取り消しています")
+        return "already-reverted"
+    r = gitx.revert(repo, target)
     if r.code == 0:
-        print(f"[canary] main 上の {bad[:8]} を revert しました")
-        return f"reverted {bad[:8]}"
+        print(f"[canary] main 上の {target[:8]} を revert しました")
+        return f"reverted {target[:8]}"
     gitx.abort_revert(repo)
     print(f"[canary] revert 失敗: {r.err or r.out}", file=sys.stderr)
     return "failed: " + (r.err or r.out)[-200:]
@@ -112,6 +115,7 @@ def _reseed_failure(factory: Factory, m: Mission, hr) -> Optional[str]:
         extra.append("test 失敗 (レポート参照)")
     body = "\n".join(["- " + w for w in (fail_rows + extra)[:12]]) or "(詳細はレポート参照)"
     seed_name = f"{m.id}-canary-fail"
+    parent_seed_dir = factory.seeds_dir / (m.seed or "")
     from .ingest import write_seed_dir
 
     write_seed_dir(
@@ -121,6 +125,14 @@ def _reseed_failure(factory: Factory, m: Mission, hr) -> Optional[str]:
         f"## 失敗要約\n\n{body}\n\n"
         f"レポート: reports/{m.id}/canary-*.md\n",
     )
+    # mock 運用 (デモ/テスト) でも修復が回るよう、親 Seed の答えキーを引き継ぐ
+    parent_mock = parent_seed_dir / "mock"
+    if m.seed and parent_mock.is_dir():
+        import shutil
+
+        dst = factory.seeds_dir / seed_name / "mock"
+        if not dst.exists():
+            shutil.copytree(parent_mock, dst)
     new_m = factory.create_mission(
         title=f"カナリア再挑戦: {m.title}",
         kind="update",
@@ -129,19 +141,27 @@ def _reseed_failure(factory: Factory, m: Mission, hr) -> Optional[str]:
         risk=m.risk,
         priority=1,
         pass_score=m.pass_score,
-        notes="auto-created by canary",
+        notes=f"auto-created by canary repair-of:{m.id}",
     )
     print(f"[canary] 再ミッション: {new_m.id}")
     return new_m.id
 
 
 def find_factory_commit(repo: Path, mid: str) -> Optional[str]:
-    """メッセージが `factory: <mid> ...` で始まる main 上のコミットを探す。"""
+    """main 上で factory: <mid> 系の最新コミットを探す。
+
+    戻り値:
+      "<sha>"                    … factory コミットが最新 → revert 対象
+      "revert:<sha>"             … その revert コミットが最新 → 二重 revert 不要
+      None                       … 該当なし
+    """
     r = gitx._git(repo, "log", "--pretty=format:%h %s", "-n", "50")
     if r.code != 0:
         return None
     for line in r.out.splitlines():
         sha, _, subject = line.partition(" ")
+        if subject.startswith(f"Revert \"factory: {mid} "):
+            return f"revert:{sha}"
         if subject.startswith(f"factory: {mid} "):
             return sha
     return None

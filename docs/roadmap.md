@@ -21,6 +21,10 @@
 - [x] **クォータ予測**: `daily_call_limit` + `window_call_limit`/`window_minutes` (例: 5h 窓) の二段管理。超過ワーカーは候補の後ろへ
 - [x] **並列 Worker**: `factory run-all --parallel N` (ミッション単位ロック + 空きポート自動選定)
 - [x] **ツール制限の明示化**: claude `allowed_tools` / `disallowed_tools` → `--allowedTools` / `--disallowedTools` 透過
+- [x] **サブスク既定の認証**: `auth: "subscription"` が既定 (API キー環境変数を子プロセスから外す) — Claude Pro/Max / ChatGPT Codex をそのまま使用
+- [x] **OpenAI (codex) ワーカー**: `codex exec` 非対話実行
+- [x] **OpenRouter ワーカー**: Chat Completions 直呼び (spec/holdout/judge 用途)
+- [x] **ファクトリークロック**: `factory tick` (取込→実行→出荷→カナリア→修復の 1 巡) + `factory supervisor` (常駐)。`autonomy_level` 1..4
 
 ## 顧客体験
 
@@ -33,8 +37,8 @@
 
 - **UI 撮影の自動化**: Playwright/AppleScript によるスクショ取得ステップ (現在はアプリ自身が PNG を出力する前提)
 - **定時シグナル収集**: cron で検索/SNS/エラートラッカーを巡回して Seed ドラフト化
-- **OpenCode のトークン/moment 予測**: 使用傾向から窓内残枠の予測表示
-- **ダッシュボード強化**: usage 窓と canary 状態も `status --watch` に表示
+- **OpenRouter のコスト予測**: 既定 auth は api_key。実際の usage.cost の有無に応じた予測表示
+- **ダッシュボード強化**: usage 窓 / canary / needs_human を `status --watch` に表示
 - **複数リポジトリ横断の依存解消**: ミッション間の順序制約 (DAG)
 
 ## 保守メモ

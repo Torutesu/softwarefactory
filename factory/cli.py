@@ -18,6 +18,8 @@
   holdout     -- シナリオの list / regen (陳腐化リフレッシュ)
   compare-img -- 2枚の PNG 類似度 (UI ベンチ比較の補助)
   usage       -- 使用量レポート
+  tick        -- ファクトリークロック 1巡 (--dry-run で計画表示)
+  supervisor  -- tick を常駐実行 (自律運転)
   worker ping -- CLI の疎通確認
 """
 from __future__ import annotations
@@ -79,17 +81,40 @@ def cmd_worker_ping(args) -> None:
         if wc.type == "mock":
             print(f"[ok] {name}: mock (常時利用可)")
             continue
+        if wc.type == "openrouter":
+            import os
+
+            if os.environ.get("OPENROUTER_API_KEY", "").strip():
+                print(f"[ok] {name}: OPENROUTER_API_KEY 設定済 (model={wc.model or 'openrouter/auto'}, auth=api_key)")
+            else:
+                print(f"[ng] {name}: OPENROUTER_API_KEY 未設定 (spec/holdout/judge 用途に使用可)")
+                ok = False
+            continue
         cmd = wc.resolved_command()
         path = which(cmd)
         if not path:
-            print(f"[ng] {name}: `{cmd}` が見つかりません")
+            print(f"[ng] {name}: `{cmd}` が見つかりません (auth={wc.auth})")
             ok = False
             continue
         r = run_cmd([path, "--version"], timeout=30)
         ver = (r.out or r.err).strip().splitlines()[:1]
-        print(f"[ok] {name}: `{cmd}` {ver[0] if ver else ''}")
+        print(f"[ok] {name}: `{cmd}` {ver[0] if ver else ''} (auth={wc.auth})")
     if not ok:
-        print("→ 未インストールの CLI があります (.factory/config.json の worker_order を確認)。", file=sys.stderr)
+        print("→ 未インストール/未設定の worker があります (.factory/config.json の worker_order を確認)。", file=sys.stderr)
+
+
+def cmd_tick(args) -> None:
+    cfg, f = _require_cfg()
+    from .supervisor import tick
+
+    tick(f, cfg, dry_run=args.dry_run)
+
+
+def cmd_supervisor(args) -> None:
+    cfg, f = _require_cfg()
+    from .supervisor import supervise
+
+    supervise(f, cfg, interval=max(5, args.interval))
 
 
 def cmd_seed(args) -> None:
@@ -524,6 +549,14 @@ def build_parser() -> argparse.ArgumentParser:
     sp = sub.add_parser("usage", help="使用量レポート")
     sp.add_argument("--days", type=int, default=7)
     sp.set_defaults(fn=cmd_usage)
+
+    sp = sub.add_parser("tick", help="ファクトリークロック 1巡 (取込→実行→出荷→カナリア)")
+    sp.add_argument("--dry-run", action="store_true", help="実行せず計画だけ表示")
+    sp.set_defaults(fn=cmd_tick)
+
+    sp = sub.add_parser("supervisor", help="tick を常駐で回し続ける")
+    sp.add_argument("--interval", type=int, default=300, help="tick 間隔秒 (既定 300)")
+    sp.set_defaults(fn=cmd_supervisor)
 
     return p
 
