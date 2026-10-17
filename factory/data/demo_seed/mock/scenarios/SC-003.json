@@ -1,0 +1,9 @@
+{
+  "id": "SC-003",
+  "title": "メモ削除 (200 ok → GET 404 / 不明IDの削除は404)",
+  "weight": 1.0,
+  "notes": "デモ用ホールドアウト (Seed に同梱された答えキー)。",
+  "steps": [
+    {"name": "delete-flow", "cmd": "python3 \"$FACTORY_HOLDOUT_DIR/sc003_delete.py\"", "expect_exit": 0}
+  ]
+}

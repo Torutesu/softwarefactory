@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "softwarefactory"
+version = "0.1.0"
+description = "社内ソフトウェアファクトリー オーケストレータ (Spec/Holdout/Loop/Judge/Worker-Router)"
+requires-python = ">=3.9"
+readme = "README.md"
+
+[project.scripts]
+factory = "factory.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["factory*"]

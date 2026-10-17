@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# ファクトリ実行環境 (factory init で作るもの。このリポジトリ自体には置かない)
+.factory/
+repos/
+products/
+seeds/
+holdout/
+missions/
+usage/
+
+# macOS
+.DS_Store
