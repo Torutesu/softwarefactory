@@ -29,6 +29,9 @@ class Iteration:
     score: Optional[int] = None
     report: str = ""
     note: str = ""
+    tokens_in: Optional[int] = None  # 実装ワーカーの入力トークン (成果単価の計測用)
+    tokens_out: Optional[int] = None
+    cost_usd: Optional[float] = None  # ワーカーが自己報告したコスト (claude CLI 等)
 
     def to_dict(self) -> dict:
         return vars(self)
@@ -49,6 +52,7 @@ class Mission:
     pass_score: int = 80
     model: str = ""  # ミッション単位のモデル上書き (空なら config のまま)
     session: dict = field(default_factory=dict)  # {"worker":..., "session_id":...} セッション継続用
+    cost_usd: Optional[float] = None  # 実装ワーカー呼出の累計コスト (judge/spec は usage 側に集計)
     created_utc: str = field(default_factory=now_utc_iso)
     updated_utc: str = field(default_factory=now_utc_iso)
     notes: str = ""
@@ -70,6 +74,12 @@ class Mission:
 
 def new_mission_id() -> str:
     return dt.datetime.now().strftime("M%Y%m%d-%H%M%S") + "-" + secrets.token_hex(2)
+
+
+def mission_cost_usd(m: "Mission") -> Optional[float]:
+    """ミッションの実装ワーカー呼出の累計コスト (自己報告値の和。無ければ None)。"""
+    vals = [it.cost_usd for it in m.iterations if it.cost_usd is not None]
+    return round(sum(vals), 4) if vals else (m.cost_usd if m.cost_usd is not None else None)
 
 
 class Factory:

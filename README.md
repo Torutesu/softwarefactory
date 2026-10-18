@@ -86,6 +86,7 @@ Harness → レポート → マージ) を即座に体験できます。
   },
   "max_attempts": 2,
   "judge_pass_score": 80,
+  "purpose_workers": { "spec": ["opencode"], "holdout": ["opencode"], "judge": ["claude_code"] },
   "merge_policy": { "mechanical": "auto", "scoped": "auto", "behavioral": "review", "sensitive": "review" },
   "sensitive_paths": ["auth", "credential", "password", "secret", "token", "payment", "billing", "crypto", "oauth", "jwt", "session", "permission", "migrat"],
   "small_change_lines": 50,
@@ -124,6 +125,19 @@ Harness → レポート → マージ) を即座に体験できます。
   付きます。`Signed-off-by` は人間のマージ判断が責任を持つため付与しません
 - worktree は空の checkout のため、`.env` 等の非追跡ファイルを
   `worktree_copy` (またはリポジトリの `.worktreeinclude`) に従って複製します
+
+## コストの可視化と節約 (用途別ルーティング)
+
+AI コーディングのコストは「どこにトークンが向かったか」を見える化しないと削減できません
+(Uber のコスト方程式: `price/token × tokens/request × requests/turn …` の分解)。
+
+| レバー | コマンド / 設定 |
+|---|---|
+| **用途別ルーティング**: spec/holdout/judge (テキスト生成) を安いワーカーへ、dev を高価 but 強いワーカーへ | config `purpose_workers: {"spec": ["opencode"], "judge": ["claude_code"], ...}` (無指定なら従来の `judge_worker`) |
+| **成果単価**: ミッションあたりのコスト/トークン | `factory status` の COST 列、`factory report <id>` の反復表 (自己報告値のあるワーカーのみ) |
+| **セッション分析**: 無駄の兆候検出 | `factory usage --waste` — 失敗率の高いワーカー / 単価の前日比急増 / 反復上限ギリギリ合格 / 失敗ミッション |
+| **予算 nudge**: 枠の消費を事前に見せる | `factory tick` 出力の `budget_nudges` (使用率 50% / 80% で表示) |
+| **プロンプトの再送削減**: 反復 2 以降は spec 全文を再送しない | 自動 (同一セッション resume 時)。spec はプロンプト先頭に置き prefix を安定させる |
 
 ## 自律運転 (ファクトリークロック)
 
@@ -200,7 +214,7 @@ factory pr <id>              # origin + gh があれば PR 作成、無ければ
 | `canary <id> [--fix] [--run-complete]` | main 上での再検証 + リカバリ |
 | `pr <id> [--base B]` | PR 作成 (gh 無ければ下書き) |
 | `compare-img a.png b.png` | 2枚の PNG 類似度 |
-| `usage [--days N]` | 使用量レポート |
+| `usage [--days N] [--waste]` | 使用量レポート (+ セッション分析) |
 | `tick [--dry-run]` | ファクトリークロック 1巡 (取込→実行→出荷→カナリア→修復) |
 | `supervisor [--interval N]` | tick を常駐で回す (自律運転) |
 

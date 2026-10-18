@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import List, Optional
 
 from .harness.runner import HarnessResult
-from .state import Factory, Iteration, Mission
+from .state import Factory, Iteration, Mission, mission_cost_usd
 from .util import save_text
 
 
@@ -90,12 +90,22 @@ def final_report(
     lines.append(f"- 反復数: {len(iterations)} / 上限 {m.max_iterations}")
     scores = [i.score for i in iterations if i.score is not None]
     lines.append(f"- 最終スコア: {scores[-1] if scores else '-'} (閾値 {m.pass_score})")
+    # 成果単価 (outcome cost): 自己報告値があるワーカーのみ集計 (judge/spec は usage 側)
+    ti = sum(i.tokens_in for i in iterations if i.tokens_in) or None
+    to = sum(i.tokens_out for i in iterations if i.tokens_out) or None
+    cost = mission_cost_usd(m)
+    if ti or to or cost:
+        lines.append(f"- 使用量 (実装呼出): tok_in {ti or '-'} / tok_out {to or '-'} / cost "
+                     f"{'$' + format(cost, '.2f') if cost is not None else '-'} (自己報告値)")
     lines.append("")
     lines.append("## 反復の推移")
-    lines.append("| # | worker | 判定 | score |")
-    lines.append("|---|---|---|---|")
+    lines.append("| # | worker | 判定 | score | tok | cost |")
+    lines.append("|---|---|---|---|---|---|")
     for it in iterations:
-        lines.append(f"| {it.n} | {it.worker} | {it.status} | {it.score if it.score is not None else '-'} |")
+        tok = (f"{it.tokens_in or 0}/{it.tokens_out or 0}"
+               if (it.tokens_in or it.tokens_out) else "-")
+        cst = f"${it.cost_usd:.2f}" if it.cost_usd is not None else "-"
+        lines.append(f"| {it.n} | {it.worker} | {it.status} | {it.score if it.score is not None else '-'} | {tok} | {cst} |")
     lines.append("")
     wt = factory.worktree(m.id)
     if wt.exists():

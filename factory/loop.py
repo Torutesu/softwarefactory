@@ -8,7 +8,7 @@ from . import gitx, spec_generator as specgen, holdout as holdout_mod, report as
 from .config import Config
 from .harness.judge import run_judge
 from .harness.runner import HarnessResult, evaluate
-from .state import Factory, Iteration, Mission
+from .state import Factory, Iteration, Mission, mission_cost_usd
 from .util import load_json, load_text, now_utc_iso, save_text, tail
 from .usage import Usage
 from .workers.base import AllWorkersFailed
@@ -23,10 +23,21 @@ def build_dev_prompt(
     hr: Optional[HarnessResult],
     judge_data: Optional[dict],
     worker_tail: str,
+    brief_spec: bool = False,
 ) -> str:
     spec_text = load_text(factory.spec_file(m.id))
     build = load_json(factory.build_file(m.id)) or {}
     wt = str(factory.worktree(m.id).resolve())
+
+    # 仕様を最初に置く (セッション内で接頭辞が安定 → プロンプトキャッシュが効く)。
+    # 反復 2 以降で同一セッションを resume している場合、全文の再送は排除 (tokens/request レバー)。
+    if brief_spec:
+        spec_block = ("## 製品仕様\n"
+                      "セッション継続中であり、仕様 (spec.md) は前回反復と同一です。再掲は省略します。\n"
+                      "仕様の原文とその変更があれば作業ディレクトリ外のこちらを参照: "
+                      f"{factory.spec_file(m.id)}\n")
+    else:
+        spec_block = f"## 製品仕様 (spec.md 全文)\n=== spec.md ===\n{spec_text}\n=== ここまで ===\n"
 
     fb = []
     if worker_tail:
@@ -51,17 +62,13 @@ def build_dev_prompt(
 
     failures_block = "\n\n".join(fb) if fb else "(初回実行)"
 
-    return f"""[Software Factory] 実装ミッション {m.id}: {m.title}
-Iteration {it_n} / 上限 {max_it}
-
-あなたは実装担当 Worker です。以下のディレクトリ (リポジトリ) 内でのみ作業してください:
+    return f"""{spec_block}
+## ミッション情報
+- ミッション {m.id}: {m.title}
+- Iteration {it_n} / 上限 {max_it}
+- あなたは実装担当 Worker です。以下のディレクトリ (リポジトリ) 内でのみ作業してください:
 
     {wt}
-
-## 製品仕様 (spec.md 全文)
-=== spec.md ===
-{spec_text}
-=== ここまで ===
 
 ## 検証コマンド (検証ハーネスが実行するもの)
 - build: `{build.get('build') or '(なし)'}`
@@ -169,13 +176,14 @@ def _run_locked(factory: Factory, m: Mission, iterations: Optional[int], cfg: Op
 
     for n in range(1, max_it + 1):
         it = Iteration(n=n, worker="-", started_utc=now_utc_iso())
-        prompt = build_dev_prompt(factory, m, n, max_it, hr, judge_data, worker_tail)
-        save_text(factory.mission_dir(m.id) / "prompts" / f"iter-{n}.md", prompt)
-
-        # セッション継続: 前反復の (worker, session_id) を Router に渡す
+        # 反復 2 以降で同一セッションを継続している場合、spec 全文の再送を省く (tokens/request レバー)
         resume = None
         if n > 1 and m.session.get("worker") and m.session.get("session_id"):
             resume = (m.session["worker"], m.session["session_id"])
+        prompt = build_dev_prompt(factory, m, n, max_it, hr, judge_data, worker_tail,
+                                  brief_spec=(n > 1 and resume is not None))
+        save_text(factory.mission_dir(m.id) / "prompts" / f"iter-{n}.md", prompt)
+
         try:
             wname, res = router.run("dev", wt, prompt, resume=resume)
         except AllWorkersFailed as e:
@@ -186,6 +194,9 @@ def _run_locked(factory: Factory, m: Mission, iterations: Optional[int], cfg: Op
             break
         it.worker = wname
         it.seconds = res.seconds
+        it.tokens_in = res.tokens_in
+        it.tokens_out = res.tokens_out
+        it.cost_usd = res.cost_usd
         worker_tail = tail(res.text, 1500)
         it.note = worker_tail
         print(f"[loop] iter {n}: worker={wname} ({res.seconds:.1f}s)")
@@ -212,6 +223,7 @@ def _run_locked(factory: Factory, m: Mission, iterations: Optional[int], cfg: Op
 
     m.iterations = iterations_log
     m.status = "done" if conclusion == "done" else "failed"
+    m.cost_usd = mission_cost_usd(m)  # 成果単価 (cost per mission) の元データ
     factory.save_mission(m)
     final_md = report_mod.final_report(factory, m, iterations_log, conclusion, run_dir, next_signals)
     save_text(factory.reports_dir(m.id) / "final.md", final_md)

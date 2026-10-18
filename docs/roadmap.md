@@ -50,8 +50,8 @@
   ワーカー実行中の参照は `disallowed_tools` で WebSearch を切っている。用途限定
   (spec/holdout セッションのみ許可する等) で開けるか検討
 - **レビュー容量のメトリクス**: ボトルネックはレビュー容量 (記事: dotnet/runtime では上位 2 名の
-  レビュアーで agent PR への指摘の 36%)。`status --watch` にレビュー待ちティア数と
-  needs_human 滞留数を出し、レビューが詰まる前に可視化する
+  レビュアーで agent PR への指摘の 36%)。`usage --waste` の反復平均・失敗・上限ギリギリ集計は
+  実装済み。次は `status --watch` にレビュー待ちティア数と `needs_human` 滞留を出す
 - **エージェント間レビュー** (将来): behavioral ティアの中間レビューを別セッションの
   ワーカー (実装者と共犯でない) に任せる、現行 judge の拡張。指摘は「差分への指摘」
   「シナリオが見落とした観点」で価値を測り、confidence スコアによるフィルタは使わない
@@ -62,6 +62,23 @@
   仕組みは信号活用の余地あり
 - **worktree の生涯管理**: 失敗ミッションの worktree は調査用に残す運用の明文化と、
   `git worktree remove` に相当する掃除コマンドの入口
+
+## 外部記事から得た観点 2 (2026-10: Uber「Running a Software Factory Efficiently at Uber Scale」)
+
+コスト方程式 (`users × sessions × turns × requests/turn × tokens/request × price/token`)
+のミドル 3 項を絞るレバー。適用済みは design.md の「コスト方程式との対応」参照。
+
+- [x] **用途別モデル/ワーカー路由** (`purpose_workers`) — 記事で最も効果が大きかった
+  「サブエージェントに安いモデルを既定にする」の本リポジトリ流の一般化
+- [x] **成果単価の記録と表示** (`Iteration.tokens/cost` → `Mission.cost_usd` → status/report)
+- [x] **セッション分析の簡易版** (`usage --waste`: 16 アンチパターン相当のうち記録から拾える 4 種)
+- [x] **予算 nudge** (tick `budget_nudges`)
+- [x] **プロンプトの prefix 安定化と再送削除** (spec を先頭へ、反復 2 以降は再掲省略)
+- **ベンチ駆動のパレート最適モデル選択**: 実務ミッションの seed/spec を束ねた社内
+  SWE ベンチを回し、ワーカー×モデルの cost/完了タスク・品質を記録する (`factory bench`
+  相当の仕組み)。これが `purpose_workers` の内容を定期的に更新する根拠になる
+- **Skill / 手順の自動改善**: judge の `priorities` を束ねて spec テンプレートや
+  holdout 生成のガイダンスを更新するループ (記事の Continuous Skill Optimization 相当)
 
 ## 保守メモ
 

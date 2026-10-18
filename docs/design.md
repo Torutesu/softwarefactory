@@ -123,6 +123,26 @@ Verification → Merge gate) と、このリポジトリの対応表。
 作業が想定より重いティアに落ちたら、`merge_policy` の調整 (例: `behavioral: auto`)
 か `sensitive_paths` の見直しで緩める。逆に締めるならティアを review 側に倒す。
 
+## コスト方程式との対応 (2026-10 適用: Uber「Efficiently at Uber Scale」)
+
+Uber の記事 *Running a Software Factory Efficiently at Uber Scale* (2026-08) は
+コストを `users × sessions × turns × requests/turn × tokens/request × price/token`
+に分解し、各項を独立に最適化している。このリポジトリへの対応表:
+
+| 記事のレバー | 本リポジトリの実装 |
+|---|---|
+| Price/token: ベンチ駆動のモデル選択・「サブエージェントは安いモデル」 | **`purpose_workers`** (config): 用途 (spec/holdout/dev/judge) ごとに優先ワーカーを指定。テキスト生成系を安いワーカーへ・dev をスキルフルなワーカーへ。`judge_worker` の一般化 (後方互換あり) |
+| Tokens/request: prompt prefix の安定化・再送の削減 | dev プロンプトは **spec を最初に**置き (セッション内で接頭辞が安定)、反復 2 以降で同一セッションを resume している場合 **spec 全文の再送を省略** (`brief_spec`) |
+| Requests/turn: context engineering | ホールドアウト + spec + 検証結果を毎反復に渡す (グラウンドされた材料を先に渡す方針)。未解決課題: リポジトリ横断の知識インデックス (roadmap) |
+| Managed agents: 成果物単価 (cost per merged PR) | `Iteration.tokens_in/out/cost_usd` を記録し、`Mission.cost_usd` に累積。`factory status` の COST 列、`factory report` の反復表、usage の「ミッション単位」節で眺められる (自己報告値のあるワーカーのみ) |
+| Visibility: 50/80/100% の spend tiers | `factory tick` 出力に **`budget_nudges`** (使用率 50% / 80% で通知)。100% は既存どおりフォールバックが吸収 |
+| Visibility: session analysis (16 のアンチパターン) | **`factory usage --waste`**: 失敗率の高いワーカー / 単価の急増 (前日比) / 反復上限ギリギリ米実装 / 失敗ミッションの列挙。簡易版として |
+
+未適用の概念 (スケールが違うため): 400K compaction (CLI 側が管理)、prompt cache TTL の
+運用制御 (CLI 側)、MCP スキーマの投影/CLI tool resolution (本リポジトリは MCP を
+標準では解さない)、AI Context Graph のような大規模データ統合。小規模運用では
+`purpose_workers` と usage の見える化が最も単価効くレバー。
+
 ## 0→1 と 継続アップデート
 
 - **0→1 (greenfield)**: ミッション kind=greenfield。空リポジトリ (or 新規リポジトリ) を対象に

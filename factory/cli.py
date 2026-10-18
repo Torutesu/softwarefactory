@@ -292,18 +292,26 @@ def cmd_merge(args) -> None:
 
 def cmd_usage(args) -> None:
     cfg, f = _require_cfg()
-    print(Usage(f.state_dir).report(days=args.days))
+    u = Usage(f.state_dir)
+    print(u.report(days=args.days))
+    if args.waste:
+        print()
+        print(u.waste_report(factory=f, days=args.days))
 
 
 def _print_status(f: Factory) -> None:
+    from .state import mission_cost_usd
+
     ms = f.list_missions()
     if not ms:
         print("ミッションなし。`factory mission new` で作成してください。")
         return
-    print(f"{'ID':<22} {'STATUS':<9} {'ITER':<4} {'SCORE':<5} {'RISK':<5} TITLE")
+    print(f"{'ID':<22} {'STATUS':<9} {'ITER':<4} {'SCORE':<5} {'COST':<8} {'RISK':<5} TITLE")
     for m in ms:
         score = m.iterations[-1].score if m.iterations and m.iterations[-1].score is not None else "-"
-        print(f"{m.id:<22} {m.status:<9} {len(m.iterations):<4} {str(score):<5} {m.risk:<5} {m.title}")
+        cost = mission_cost_usd(m)
+        cost_s = f"${cost:.2f}" if cost is not None else "-"
+        print(f"{m.id:<22} {m.status:<9} {len(m.iterations):<4} {str(score):<5} {cost_s:<8} {m.risk:<5} {m.title}")
 
 
 def cmd_signals(args) -> None:
@@ -555,6 +563,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     sp = sub.add_parser("usage", help="使用量レポート")
     sp.add_argument("--days", type=int, default=7)
+    sp.add_argument("--waste", action="store_true", help="無駄の兆候 (セッション分析) も表示")
     sp.set_defaults(fn=cmd_usage)
 
     sp = sub.add_parser("tick", help="ファクトリークロック 1巡 (取込→実行→出荷→カナリア)")

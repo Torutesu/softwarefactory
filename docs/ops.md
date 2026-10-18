@@ -136,6 +136,17 @@ tick の自動出荷 (`factory tick`, level>=2) はティアの `merge_policy` �
 revert は未コミット変更があると中止する (安全第一)。main が既に revert 済みなら
 二重 revert をせず `already-reverted` として扱う。
 
+## 使用量の確認とセッション分析
+
+```bash
+bin/factory usage                     # 日別の calls / tokens / cost (期間合計付き)
+bin/factory usage --waste             # + 無駄の兆候: 失敗率の高いワーカー、単価の前日比急増、
+                                      #   反復上限ギリギリの合格、失敗ミッション (成果物なし消費)
+```
+
+cost はワーカーが自己報告する値 (claude CLI の total_cost 等) のみ記録する。
+subscript 枠運用では「0 円」でも枠消費は `calls` / usage 窓で見る。
+
 ## 自律運転: tick (ファクトリークロック) と supervisor
 
 1 回の tick は「取込 → 実行 → 出荷 → カナリア → 修復」の一巡:
@@ -158,6 +169,9 @@ bin/factory supervisor --interval 300 # 常駐で tick を回し続ける
 - **エスカレーション**: 高リスク・予算枯渇・修復ラウンド上限 (`max_repair_rounds`)・
   Seed の project 未確定・反復上限は `needs_human` に積まれ、tick の要約 JSON と
   `state.json` の events に残る。`notify_url` を設定すると要約を Webhook POST 。
+- **予算 nudge (`budget_nudges`)**: ワーカー枠の使用率が 50% / 80% を跨ぐと
+  `needs_human` とは別に情報として tick 出力に載る (硬い上限ではなく接近情報。
+  100% 超は既存どおり fallback が吸収)。
 - **逆振れ防止**: 修復ミッションには `repair-of:<id>` が付くので、修復の修復が
   `max_repair_rounds` (既定 1) を超えると自動出荷されない。
 - **冪等**: tick は 2 巡連続で回しても 2 巡目は無活動で終わる (全 Seed 割当済み・

@@ -93,6 +93,7 @@ class Config:
     use_worker: str = "auto"  # auto | claude_code | codex | opencode | openrouter | mock
     worker_order: List[str] = field(default_factory=lambda: list(DEFAULT_WORKER_ORDER))
     judge_worker: str = ""  # 空なら worker_order の先頭
+    purpose_workers: Dict[str, List[str]] = field(default_factory=dict)  # 用途(spec/holdout/dev/judge) -> 優先ワーカー順
     max_attempts: int = 2
     judge_pass_score: int = 80
     autonomy_level: int = 1  # 1..4 (docs/design.md のファクトリークロック参照)
@@ -126,6 +127,7 @@ class Config:
             "use_worker": self.use_worker,
             "worker_order": self.worker_order,
             "judge_worker": self.judge_worker,
+            "purpose_workers": {k: list(v) for k, v in (self.purpose_workers or {}).items()},
             "max_attempts": self.max_attempts,
             "judge_pass_score": self.judge_pass_score,
             "autonomy_level": self.autonomy_level,
@@ -174,6 +176,7 @@ class Config:
             use_worker=data.get("use_worker", "auto"),
             worker_order=list(data.get("worker_order") or DEFAULT_WORKER_ORDER),
             judge_worker=data.get("judge_worker", ""),
+            purpose_workers={k: list(v) for k, v in (data.get("purpose_workers") or {}).items() if v},
             max_attempts=int(data.get("max_attempts", 2)),
             judge_pass_score=int(data.get("judge_pass_score", 80)),
             autonomy_level=int(data.get("autonomy_level", 1)),

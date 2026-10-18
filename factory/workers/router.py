@@ -95,10 +95,20 @@ class Router:
         use = getattr(self.cfg, "use_worker", "auto")
         if use and use != "auto":
             order = [use] + [n for n in order if n != use]
-        if purpose == "judge" and self.cfg.judge_worker and self.cfg.judge_worker in order:
-            order = [self.cfg.judge_worker] + [n for n in order if n != self.cfg.judge_worker]
         avail = set(self.available_names())
-        return [n for n in dict.fromkeys(order) if n in avail and purpose in self.caps_for(n)]
+        base = [n for n in dict.fromkeys(order) if n in avail and purpose in self.caps_for(n)]
+
+        # 用途別ルーティング (Uber のコスト方程式: Price/token レバー):
+        # テキスト生成系 (spec/holdout/judge) を安いワーカーに寄せ、dev はスキルフルな
+        # ワーカーに任せる。purpose_workers が優先、指定が無ければ従来の judge_worker。
+        preferred: list = []
+        pw = (getattr(self.cfg, "purpose_workers", None) or {}).get(purpose)
+        if not pw and purpose == "judge" and self.cfg.judge_worker:
+            pw = [self.cfg.judge_worker]
+        for n in (pw or []):
+            if n in base:
+                preferred.append(n)
+        return preferred + [n for n in base if n not in preferred]
 
     # ------------------------------------------------------------------
     def run(self, purpose: str, cwd: Path, prompt: str, timeout: Optional[int] = None,

@@ -143,22 +143,31 @@ def step_execute(factory: Factory, cfg: Config, dry_run: bool) -> dict:
     queued = [m for m in factory.list_missions() if m.status == "queued"]
     queued.sort(key=lambda m: (m.priority, m.id))
     if not queued:
-        return {"ran": [], "escalate": []}
+        return {"ran": [], "escalate": [], "nudges": []}
     usage = Usage(factory.state_dir)
     router = Router(cfg, usage)
     avail = router.available_names()
     if not avail:
-        return {"ran": [], "escalate": ["no_worker_available"]}
+        return {"ran": [], "escalate": ["no_worker_available"], "nudges": []}
     over = [n for n in avail if usage.budget_exceeded(n, cfg.workers.get(n, WorkerConfig()))
             or usage.window_budget_exceeded(n, cfg.workers.get(n, WorkerConfig()))]
     if over and len(over) == len(avail):
-        return {"ran": [], "escalate": ["budget_exhausted: 全ワーカーが予算超過"]}
+        return {"ran": [], "escalate": ["budget_exhausted: 全ワーカーが予算超過"], "nudges": []}
+
+    # 予算 nudge (Uber の spend tiers 相当: 50/80% で通知。100% 超はフォールバックが吸収)
+    nudges = []
+    for n in avail:
+        r = usage.usage_ratio(n, cfg.workers.get(n, WorkerConfig()))
+        if 1.0 > r >= 0.8:
+            nudges.append(f"{n}: 予算枠使用率 {int(r * 100)}% — 上限接近 (超過分は fallback と mock が吸収)")
+        elif 0.8 > r >= 0.5:
+            nudges.append(f"{n}: 予算枠使用率 {int(r * 100)}%")
 
     runnable = [m for m in queued if m.risk != "high"]
     escalations = [f"{m.id}: high-risk は自動実行しません" for m in queued if m.risk == "high"]
     ran = []
     if dry_run:
-        return {"ran": [f"(dry) {m.id}" for m in runnable], "escalate": escalations}
+        return {"ran": [f"(dry) {m.id}" for m in runnable], "escalate": escalations, "nudges": nudges}
 
     def one(m) -> tuple:
         try:
@@ -186,7 +195,7 @@ def step_execute(factory: Factory, cfg: Config, dry_run: bool) -> dict:
                 factory.event("tick_run_error", f"{mid}: {err[:300]}")
 
     escalations += [f"{r['mission']}: {r['status']}" for r in ran if r["status"] == "failed"]
-    return {"ran": ran, "escalate": escalations}
+    return {"ran": ran, "escalate": escalations, "nudges": nudges}
 
 
 def step_deliver(factory: Factory, cfg: Config, dry_run: bool) -> dict:
@@ -288,6 +297,7 @@ def tick(factory: Factory, cfg: Config, dry_run: bool = False) -> dict:
     needs_human += out["execute"].get("escalate") or []
     needs_human += out["deliver"].get("escalate") or []
     out["needs_human"] = needs_human
+    out["budget_nudges"] = out["execute"].get("nudges") or []
     print("--- tick summary", ("(dry-run)" if dry_run else ""), "---")
     print(json.dumps(out, ensure_ascii=False, indent=2))
     if dry_run:
