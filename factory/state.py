@@ -54,7 +54,7 @@ class Mission:
     model: str = ""  # ミッション単位のモデル上書き (空なら config のまま)
     session: dict = field(default_factory=dict)  # {"worker":..., "session_id":...} セッション継続用
     cost_usd: Optional[float] = None  # 実装ワーカー呼出の累計コスト (judge/spec は usage 側に集計)
-    halt_reason: str = ""  # 打ち切り理由: noprogress | max_iterations | all_workers_failed | unreviewable
+    halt_reason: str = ""  # 打ち切り理由: noprogress | max_iterations | all_workers_failed | unreviewable | holdout_leak
     created_utc: str = field(default_factory=now_utc_iso)
     updated_utc: str = field(default_factory=now_utc_iso)
     notes: str = ""

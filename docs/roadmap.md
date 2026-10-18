@@ -119,6 +119,17 @@ Firecrawl「LLM Token Optimization: 9 Techniques in the Order to Apply Them」(2
   次回実装バッチに混ぜやすい
 
 
+## 安全性・運用の土台 (2026-10)
+
+- [x] **ホールドアウトの隔離**: dev 呼出中の `chmod 000` 封印 + ワーカー出力のパス検知 (`holdout_leak`)
+- [x] **listener の認証**: Bearer / HMAC (GitHub 互換)、非ループバック時は secret 必須、本文 1MB 上限、
+  Seed 外パスへの書き込み拒否 (従来は `files` 名で任意パスに書けた)
+- [x] **CI**: `.github/workflows/ci.yml` (既定 self-hosted Mac mini、ワーカー CLI スタブで枠消費を防止)
+- [x] **Mac mini 常駐**: `deploy/macmini/install.sh` (launchd LaunchAgent, caffeinate, キーチェーンの secret)
+- [x] **judge 省略**: harness 失敗時は judge を呼ばない (`judge_on_harness_fail`)
+- 次候補: judge 入力をワーカーの自己申告から `git diff` 要約へ寄せる / `state.json` の
+  read-modify-write にロック / worktree 掃除コマンド / 封印の macOS sandbox-exec 化 (root 運用でも効く隔離)
+
 ## 保守メモ
 
 - `mock` ワーカーはデモ・結合テストの要。実 LLM worker を追加しても、契約

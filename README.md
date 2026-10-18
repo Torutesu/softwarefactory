@@ -93,7 +93,8 @@ Harness → レポート → マージ) を即座に体験できます。
   "intake_dup_threshold": 0.85,
   "worktree_copy": [".env", ".env.*", "config/secrets.json", "*.local"],
   "noprogress_iterations": 2,
-  "require_reviewable": true
+  "require_reviewable": true,
+  "judge_on_harness_fail": false
 }
 ```
 
@@ -122,6 +123,17 @@ dev ループは次の 3 つの保障で必ず止まります。止まった理�
 加えて dev に入る前の **reviewability ゲート** (`require_reviewable`, 既定 true):
 `build.json` に `test` が無く、ホールドアウトシナリオも無いミッションは「通った」を
 judge の自己申告でしか判定できないため、`blocked` (`unreviewable`) で止めて人間に返します。
+
+## ホールドアウトの隔離
+
+実装ワーカーは確認なしモード (`--dangerously-skip-permissions` 等) で動くため、prompt の
+「holdout/ を触らない」だけでは読めてしまいます。そこで二重に塞ぎます。
+
+- **封印**: dev ワーカー呼出の間だけ `holdout/<id>` を `chmod 000` にし、呼出後 (例外時も) に戻す。
+  kill されて封印が残った場合は次回実行の冒頭で復旧する。**root では権限が効かない**ので
+  ファクトリーは一般ユーザーで動かす
+- **漏洩検知**: ワーカー出力に holdout の絶対パスや `holdout/<id>` が出たら、その反復で打ち切り
+  (`halt_reason=holdout_leak`)。シナリオは見られた前提で `holdout regen` してから再実行する
 
 ## マージゲート (blast radius ティア)
 
@@ -156,6 +168,8 @@ AI コーディングのコストは「どこにトークンが向かったか�
 | **セッション分析**: 無駄の兆候検出 | `factory usage --waste` — 失敗率の高いワーカー / 単価の前日比急増 / 反復上限ギリギリ合格 / 失敗ミッション |
 | **予算 nudge**: 枠の消費を事前に見せる | `factory tick` 出力の `budget_nudges` (使用率 50% / 80% で表示) |
 | **プロンプトの再送削減**: 反復 2 以降は spec 全文を再送しない | 自動 (同一セッション resume 時)。spec はプロンプト先頭に置き prefix を安定させる |
+| **合格し得ない反復の judge 省略**: harness が落ちた反復は judge を呼ばない | 既定 (`judge_on_harness_fail: false`)。指摘は build/test の tail と失敗シナリオ名で次反復に渡る |
+| **Mac mini 常駐**: サブスク枠 + self-hosted CI で従量課金を外す | `deploy/macmini/install.sh` (launchd) と `.github/workflows/ci.yml` — 手順は `docs/macmini.md` |
 
 ## 自律運転 (ファクトリークロック)
 
@@ -192,7 +206,9 @@ factory ingest https://teams.example.com/blog/idea-post --title "アイデア投
 factory ingest ./materials/shopping-ui --project demo_app --kind greenfield --run
 
 # 3) Webhook 受付 (サーバ常駐)。Slack/Teams/監視ツールから POST する
-factory listen --port 8787 --project demo_app --auto-create
+#    secret 設定時は Authorization: Bearer <secret> か X-Hub-Signature-256 (HMAC) が必須。
+#    ループバック以外で待ち受けるなら secret 必須。本文は 1MB まで、files の名前は Seed 内に限る
+FACTORY_LISTEN_SECRET=... factory listen --port 8787 --project demo_app --auto-create
 #   POST /signals  {"title": "...", "body": "...", "source": "...",
 #                   "project": "demo_app", "files": {"note.md": "text"}}
 #   GET  /health

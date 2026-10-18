@@ -103,6 +103,12 @@ bin/factory signals          # 取り込んだシグナル一覧
 ```
 
 listener のログは `.factory/listener.log`、取り込み履歴は state.json の `signals` に残る。
+
+認証: `--secret` か環境変数 `FACTORY_LISTEN_SECRET` を設定すると、`Authorization: Bearer <secret>`
+または GitHub 互換の `X-Hub-Signature-256: sha256=<HMAC-SHA256(secret, body)>` が無い POST は 401。
+`--bind` がループバック以外なら secret 必須 (未設定では起動しない)。本文が 1MB を超えると 413、
+`files` の名前が Seed ディレクトリの外 (`../`・絶対パス) を指すと 400 で、何も書き込まない。
+受け取った本文は最終的に確認なしで動く Worker の prompt になるため、`--auto-run` を使うなら secret を設定する。
 外部システム側の Webhook URL 例: `http://127.0.0.1:8787/signals`。
 
 ## マージ後: カナリア検証と PR
@@ -210,6 +216,7 @@ cron 例 (5 分ごとに一巡):
 ```
 
 listener (`bin/factory listen`) は常駐の Webhook 受付として supervisor と並行運用する。
+Mac mini で launchd 常駐させる手順 (CI runner の同居も含む) は `docs/macmini.md`。
 
 ## ホールドアウトの保守
 

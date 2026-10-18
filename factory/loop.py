@@ -166,6 +166,8 @@ def _run_locked(factory: Factory, m: Mission, iterations: Optional[int], cfg: Op
             return m
 
     # --- Holdout -------------------------------------------------------
+    if holdout_mod.unseal_if_stale(factory, m.id):
+        print(f"[loop] {m.id}: 前回の中断で封印されたままの holdout を復旧しました")
     if not holdout_mod.scenario_files(factory, m.id):
         print("[loop] ホールドアウトシナリオを生成します (Holdout Generator)...")
         holdout_mod.generate(factory, m, router)
@@ -209,7 +211,8 @@ def _run_locked(factory: Factory, m: Mission, iterations: Optional[int], cfg: Op
 
         before = gitx.tree_fingerprint(wt)
         try:
-            wname, res = router.run("dev", wt, prompt, resume=resume)
+            with holdout_mod.sealed(factory, m.id):
+                wname, res = router.run("dev", wt, prompt, resume=resume)
         except AllWorkersFailed as e:
             it.status = "failed"
             it.note = str(e)
@@ -229,8 +232,25 @@ def _run_locked(factory: Factory, m: Mission, iterations: Optional[int], cfg: Op
         if res.session_id:
             m.session = {"worker": wname, "session_id": res.session_id}
 
+        # ホールドアウトに到達した形跡があれば、この反復以降の検証は信頼できない
+        leak = holdout_mod.detect_leak(factory, m.id, res.text, res.raw_tail)
+        if leak:
+            it.status = "failed"
+            it.note = f"[holdout_leak] worker 出力に {leak!r} が出現\n" + it.note
+            iterations_log.append(it)
+            m.halt_reason = "holdout_leak"
+            factory.event("holdout_leak_suspect", f"{m.id} iter={n} worker={wname}")
+            print(f"[loop] {m.id}: worker 出力にホールドアウトのパスが出現 → 打ち切り (needs_human。"
+                  "holdout regen でシナリオを作り直してから再実行)")
+            break
+
         hr = evaluate(factory, m, wt)
-        judge_data = run_judge(factory, m, hr, worker_tail, router)
+        # harness が落ちた反復は合格し得ない。judge を呼ぶと LLM 1 回分の枠を使うだけなので既定で省く
+        # (次反復への指摘は build/test の tail と失敗シナリオ名で足りる)
+        if hr.ok or cfg.judge_on_harness_fail:
+            judge_data = run_judge(factory, m, hr, worker_tail, router)
+        else:
+            judge_data = None
         passed, score = _pass_criteria(m, hr, judge_data)
         it.status = "passed" if passed else "failed"
         it.score = score

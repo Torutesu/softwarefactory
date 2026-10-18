@@ -46,12 +46,20 @@ def _unique_name(factory, base: str) -> str:
 
 def write_seed_dir(factory, name: str, title: str, body: str, extra_files: Optional[dict] = None) -> Path:
     d = factory.seeds_dir / name
+    # Webhook 由来の名前で Seed 外 (../ や絶対パス) に書かせない。書き込み前に全件検証し、
+    # 不正があれば Seed ディレクトリ自体を作らない (中途半端な Seed を intake に拾わせない)
+    root = d.resolve()
+    targets = []
+    for rel, content in (extra_files or {}).items():
+        p = (d / rel).resolve()
+        if p == root or root not in p.parents:
+            raise ValueError(f"seed 外へのパスは書き込めません: {rel!r}")
+        targets.append((p, content))
     d.mkdir(parents=True, exist_ok=True)
     seed_md = d / "seed.md"
     if not seed_md.exists():
         seed_md.write_text(body, encoding="utf-8")
-    for rel, content in (extra_files or {}).items():
-        p = d / rel
+    for p, content in targets:
         p.parent.mkdir(parents=True, exist_ok=True)
         if isinstance(content, bytes):
             p.write_bytes(content)
