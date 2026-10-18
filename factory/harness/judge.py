@@ -14,6 +14,11 @@ from ..state import Factory, Mission
 from ..util import load_text
 from .runner import HarnessResult
 
+# 出力の上限設計 (token 最適化): judge の指摘は次反復の prompt に全量載るため長さを絞る
+JUDGE_MAX_COMMENTS_CHARS = 400
+JUDGE_MAX_PRIORITIES = 3
+JUDGE_MAX_PRIORITY_CHARS = 160
+
 
 def judge_prompt(m: Mission, spec_text: str, hr: HarnessResult, worker_tail: str) -> str:
     scen_lines = []
@@ -61,6 +66,7 @@ def judge_prompt(m: Mission, spec_text: str, hr: HarnessResult, worker_tail: str
 - verdict: 全シナリオが仕様を満たし、かつ実装の品質に重大な懸念がなければ "pass"。それ以外は "revise"。
 - score: 0〜100 (シナリオ結果が主根拠。報告の質も 10 点程度で加味)。
 - priorities: verdict が "revise" のときは次反復の具体的な改善提案 (仕様レベルの指摘のみ。コード例は書かない)。pass のときは将来の改善提案 (省略可)。
+- 長さの上限: comments は {JUDGE_MAX_COMMENTS_CHARS} 字以内、priorities は重要な順に最大 {JUDGE_MAX_PRIORITIES} 件・各 {JUDGE_MAX_PRIORITY_CHARS} 字以内 (超過分は切り捨てられる)。
 """
 
 
@@ -95,4 +101,16 @@ def run_judge(factory: Factory, m: Mission, hr: HarnessResult, worker_tail: str,
     except (TypeError, ValueError):
         data["score"] = 0
     data["verdict"] = str(data.get("verdict", "revise"))
+    return cap_judge_output(data)
+
+
+def cap_judge_output(data: dict) -> dict:
+    """comments / priorities を上限に切り詰める (モデルが指示を守らなくても prompt を太らせない)。"""
+    data["comments"] = str(data.get("comments") or "")[:JUDGE_MAX_COMMENTS_CHARS]
+    pr = data.get("priorities")
+    if isinstance(pr, str):
+        pr = [pr]
+    if not isinstance(pr, list):
+        pr = []
+    data["priorities"] = [str(p)[:JUDGE_MAX_PRIORITY_CHARS] for p in pr if p][:JUDGE_MAX_PRIORITIES]
     return data

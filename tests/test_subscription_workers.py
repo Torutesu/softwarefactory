@@ -170,9 +170,9 @@ class TestRouterPurpose(unittest.TestCase):
 
         cfg = Config(root=".",
                      worker_order=["claude_code", "codex", "opencode", "mock"],
-                     workers={"claude_code": WorkerConfig(type="claude"),
-                              "codex": WorkerConfig(type="codex"),
-                              "opencode": WorkerConfig(type="opencode")})
+                     workers={"claude_code": WorkerConfig(type="claude", command="factory-missing-claude"),
+                              "codex": WorkerConfig(type="codex", command="factory-missing-codex"),
+                              "opencode": WorkerConfig(type="opencode", command="factory-missing-opencode")})
         r = Router(cfg, __import__("factory.usage", fromlist=["Usage"]).Usage(Path("/tmp/x")))
         # CLI 実体が無い環境: codex/claude/opencode はスキップされ mock のみ
         self.assertEqual(r.available_names(), ["mock"])

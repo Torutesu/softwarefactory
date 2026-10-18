@@ -172,29 +172,31 @@ def step_execute(factory: Factory, cfg: Config, dry_run: bool) -> dict:
     def one(m) -> tuple:
         try:
             m2 = run_mission(factory, m.id, confirm=False, cfg=cfg)
-            return (m.id, m2.status, None)
+            return (m.id, m2.status, None, m2.halt_reason)
         except SystemExit as e:
-            return (m.id, m.status, str(e))
+            return (m.id, m.status, str(e), "")
         except Exception as e:  # noqa
-            return (m.id, m.status, f"error: {e}")
+            return (m.id, m.status, f"error: {e}", "")
 
     cap = max(1, int(getattr(cfg, "tick_concurrency", 2) or 1))
     if cap > 1 and len(runnable) > 1:
         with ThreadPoolExecutor(max_workers=min(cap, len(runnable))) as ex:
             futs = [ex.submit(one, m) for m in runnable]
             for fut in as_completed(futs):
-                mid, status, err = fut.result()
-                ran.append({"mission": mid, "status": status, "error": err})
+                mid, status, err, halt = fut.result()
+                ran.append({"mission": mid, "status": status, "error": err, "halt_reason": halt})
                 if err:
                     factory.event("tick_run_error", f"{mid}: {err[:300]}")
     else:
         for m in runnable:
-            mid, status, err = one(m)
-            ran.append({"mission": mid, "status": status, "error": err})
+            mid, status, err, halt = one(m)
+            ran.append({"mission": mid, "status": status, "error": err, "halt_reason": halt})
             if err:
                 factory.event("tick_run_error", f"{mid}: {err[:300]}")
 
-    escalations += [f"{r['mission']}: {r['status']}" for r in ran if r["status"] == "failed"]
+    # failed (noprogress / 上限) と blocked (unreviewable) は人間に返す
+    escalations += [f"{r['mission']}: {r['status']}" + (f" ({r['halt_reason']})" if r.get("halt_reason") else "")
+                    for r in ran if r["status"] in ("failed", "blocked")]
     return {"ran": ran, "escalate": escalations, "nudges": nudges}
 
 

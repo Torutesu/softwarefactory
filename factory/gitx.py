@@ -123,6 +123,27 @@ def log(wt: Path, n: int = 20, fmt: str = "%h %ad %s", extra: str = "") -> str:
     return r.out.strip() if r.code == 0 else ""
 
 
+def tree_fingerprint(wt: Path) -> str:
+    """作業ツリー内容の指紋 (未コミット・未追跡を含む内容の tree ハッシュ)。
+
+    noprogress 検知用: ワーカー呼出の前後で一致すれば「実差分ゼロ」。一時 index に
+    `add -A` して `write-tree` するので、コミットしたか否かに左右されない (.gitignore と
+    __pycache__ / *.pyc は対象外)。取得に失敗したら毎回異なる値を返す (=変化あり扱い)。
+    """
+    import secrets
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as td:
+        env = dict(os.environ, GIT_INDEX_FILE=str(Path(td) / "index"))
+        base = ["git", "-C", str(wt)]
+        add = run_cmd(base + ["add", "-A", "--", ".", ":(glob,exclude)**/__pycache__/**",
+                              ":(glob,exclude)**/*.pyc"], env=env, timeout=120)
+        r = run_cmd(base + ["write-tree"], env=env, timeout=60) if add.code == 0 else add
+    if r.code != 0 or not r.out.strip():
+        return "unknown-" + secrets.token_hex(8)
+    return r.out.strip()
+
+
 def diff_stat(wt: Path, base: str = "HEAD") -> str:
     r = _git(wt, "diff", "--shortstat", base)
     return r.out.strip()

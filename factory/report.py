@@ -87,6 +87,8 @@ def final_report(
 ) -> str:
     lines = [f"# Mission {m.id}: {m.title}", ""]
     lines.append(f"- 結論: **{conclusion}**")
+    if m.halt_reason:
+        lines.append(f"- 打ち切り理由: {m.halt_reason}")
     lines.append(f"- 反復数: {len(iterations)} / 上限 {m.max_iterations}")
     scores = [i.score for i in iterations if i.score is not None]
     lines.append(f"- 最終スコア: {scores[-1] if scores else '-'} (閾値 {m.pass_score})")

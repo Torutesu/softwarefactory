@@ -24,6 +24,7 @@ def build_dev_prompt(
     judge_data: Optional[dict],
     worker_tail: str,
     brief_spec: bool = False,
+    no_change: bool = False,
 ) -> str:
     spec_text = load_text(factory.spec_file(m.id))
     build = load_json(factory.build_file(m.id)) or {}
@@ -40,6 +41,11 @@ def build_dev_prompt(
         spec_block = f"## 製品仕様 (spec.md 全文)\n=== spec.md ===\n{spec_text}\n=== ここまで ===\n"
 
     fb = []
+    if no_change:
+        fb.append("### 警告: 前回反復で作業ツリーに変更がありませんでした\n"
+                  "同じ状態のままもう一度反復すると、ループは noprogress として打ち切られ人間に返されます。"
+                  "変更が不要・不可能と判断した場合は、その理由 (仕様の矛盾・スコープ外の変更が必要 等) を"
+                  "最終メッセージの先頭に明記してください。")
     if worker_tail:
         fb.append("### 前回のあなたの要約\n" + worker_tail)
     if hr:
@@ -164,9 +170,26 @@ def _run_locked(factory: Factory, m: Mission, iterations: Optional[int], cfg: Op
         print("[loop] ホールドアウトシナリオを生成します (Holdout Generator)...")
         holdout_mod.generate(factory, m, router)
 
+    # --- Reviewability ゲート ---------------------------------------
+    # loop-shaped の 3 条件 (repetitive / reviewable / valuable) のうち reviewable を機械判定:
+    # テストもホールドアウトも無いと「通った」の意味が judge の自己申告だけになる
+    if cfg.require_reviewable:
+        build = load_json(factory.build_file(m.id)) or {}
+        if not build.get("test") and not holdout_mod.scenario_files(factory, m.id):
+            m.status = "blocked"
+            m.halt_reason = "unreviewable"
+            factory.save_mission(m)
+            factory.event("mission_unreviewable", m.id)
+            print(f"[loop] {m.id}: build.json に test も holdout シナリオも無いため dev に入りません "
+                  "(test を設定するか holdout regen 後に再実行してください)")
+            return m
+
     # --- Dev loop ------------------------------------------------------
     m.status = "dev"
+    m.halt_reason = ""
     factory.save_mission(m)
+    noprog_limit = max(0, int(cfg.noprogress_iterations or 0))
+    stall = 0  # 実差分ゼロの反復が連続した回数
     iterations_log: List[Iteration] = []
     hr: Optional[HarnessResult] = None
     judge_data: Optional[dict] = None
@@ -181,17 +204,20 @@ def _run_locked(factory: Factory, m: Mission, iterations: Optional[int], cfg: Op
         if n > 1 and m.session.get("worker") and m.session.get("session_id"):
             resume = (m.session["worker"], m.session["session_id"])
         prompt = build_dev_prompt(factory, m, n, max_it, hr, judge_data, worker_tail,
-                                  brief_spec=(n > 1 and resume is not None))
+                                  brief_spec=(n > 1 and resume is not None), no_change=stall > 0)
         save_text(factory.mission_dir(m.id) / "prompts" / f"iter-{n}.md", prompt)
 
+        before = gitx.tree_fingerprint(wt)
         try:
             wname, res = router.run("dev", wt, prompt, resume=resume)
         except AllWorkersFailed as e:
             it.status = "failed"
             it.note = str(e)
             iterations_log.append(it)
+            m.halt_reason = "all_workers_failed"
             print(f"[loop] 全ワーカー失敗: {e}")
             break
+        it.changed = gitx.tree_fingerprint(wt) != before
         it.worker = wname
         it.seconds = res.seconds
         it.tokens_in = res.tokens_in
@@ -220,6 +246,16 @@ def _run_locked(factory: Factory, m: Mission, iterations: Optional[int], cfg: Op
             if judge_data:
                 next_signals = [p for p in (judge_data.get("priorities") or []) if isinstance(p, str)]
             break
+
+        # halting の 3 つ目の保障: noprogress (反復上限・支出上限に加えて)
+        stall = 0 if it.changed else stall + 1
+        if noprog_limit and stall >= noprog_limit:
+            m.halt_reason = "noprogress"
+            factory.event("mission_noprogress", f"{m.id} iter={n} stall={stall}")
+            print(f"[loop] {m.id}: {stall} 反復連続で作業ツリーに実差分なし → 打ち切り (needs_human)")
+            break
+    else:
+        m.halt_reason = "max_iterations"  # break せずに抜けた = 上限まで未収束
 
     m.iterations = iterations_log
     m.status = "done" if conclusion == "done" else "failed"

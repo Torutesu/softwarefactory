@@ -109,6 +109,8 @@ class Config:
     intake_dup_threshold: float = 0.85  # intake 重複ゲートの類似度閾値 (0 で無効)
     worktree_copy: List[str] = field(
         default_factory=lambda: list(DEFAULT_WORKTREE_COPY))  # worktree へ複製する非追跡ファイル
+    noprogress_iterations: int = 2  # 連続でこの回数、実差分ゼロの反復が続いたら打ち切り (0 で無効)
+    require_reviewable: bool = True  # build.json の test もホールドアウトも無いミッションは dev に入らない
     projects: Dict[str, ProjectConfig] = field(default_factory=dict)
     workers: Dict[str, WorkerConfig] = field(default_factory=dict)
 
@@ -140,6 +142,8 @@ class Config:
             "small_change_lines": self.small_change_lines,
             "intake_dup_threshold": self.intake_dup_threshold,
             "worktree_copy": list(self.worktree_copy),
+            "noprogress_iterations": self.noprogress_iterations,
+            "require_reviewable": self.require_reviewable,
             "root": self.root,
             "projects": {k: vars(v) for k, v in self.projects.items()},
             "workers": {k: vars(v) for k, v in self.workers.items()},
@@ -191,6 +195,8 @@ class Config:
             intake_dup_threshold=float(data.get("intake_dup_threshold", 0.85)),
             worktree_copy=(list(data["worktree_copy"]) if "worktree_copy" in data
                            else list(DEFAULT_WORKTREE_COPY)),
+            noprogress_iterations=int(data.get("noprogress_iterations", 2)),
+            require_reviewable=bool(data.get("require_reviewable", True)),
             projects=projects,
             workers=workers,
         )

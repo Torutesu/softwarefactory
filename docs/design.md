@@ -120,6 +120,18 @@ Verification → Merge gate) と、このリポジトリの対応表。
 | 4. Verification (ネストした検証) | build/test → **LLM ジャッジ** → **カナリア (main 再検証)** の 3 層。Spotify 型と同型 | 検証は生成後に始まり、差分が人間に届くまでに完了する。判定は仕様適合 (holdout シナリオ) で、コードレビューに依存しない。Faire の教訓 (モデルの自己申告 confidence は品質シグナルにならない) を踏まえ、ジャッジはコンテキスト + シナリオ結果で判定する |
 | 5. Merge gate (責任) | `merge` / `step_deliver` | **blast radius ティア**: `mergegate.classify` が差分を mechanical / scoped / behavioral / sensitive に分類し、`merge_policy` (既定: 機械的と小差分は auto、振る舞いとセンシティブは人間レビュー) で自動マージの可否を決める。**帰属**: マージコミット/PR に `Assisted-by:` トレーラ、`Signed-off-by` は付けない (Linux kernel の 2026 方針に準拠)。Greenfield は既定 behavioral (0→1 実装は人間レビュー対象) |
 
+### Loop Engineering との対応 (2026-10 適用)
+
+Firecrawl *Loop Engineering* の halting 3 保障 (反復上限・支出上限・noprogress) を全て
+持つ。noprogress は `gitx.tree_fingerprint` (一時 index に `add -A` → `write-tree`) で
+ワーカー呼出前後の作業ツリー内容を比較する。コミットの有無ではなく内容で判定するため、
+「コミットだけ打って何も直していない」反復も検知できる。loop-shaped の 3 条件のうち
+reviewable は dev 前のゲート (test もシナリオも無ければ `blocked`) で機械判定する。
+spec テンプレートには Anthropic *2026 Agentic Coding Trends* のハンドオフ表から
+「スコープ (触ってよい/触らない領域)」「エスカレート条件」を追加した。judge 出力は
+次反復の prompt に全量載るので、comments 400 字・priorities 3 件×160 字で切り詰める
+(token 最適化記事の「出力の上限設計」)。
+
 作業が想定より重いティアに落ちたら、`merge_policy` の調整 (例: `behavioral: auto`)
 か `sensitive_paths` の見直しで緩める。逆に締めるならティアを review 側に倒す。
 
