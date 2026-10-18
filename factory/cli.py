@@ -337,7 +337,8 @@ def _print_status(f: Factory, show_bench: bool = False) -> None:
         score = m.iterations[-1].score if m.iterations and m.iterations[-1].score is not None else "-"
         cost = mission_cost_usd(m)
         cost_s = f"${cost:.2f}" if cost is not None else "-"
-        print(f"{m.id:<22} {m.status:<9} {len(m.iterations):<4} {str(score):<5} {cost_s:<8} {m.risk:<5} {tag}{m.title}")
+        halt = f"[{m.halt_reason}] " if m.halt_reason and m.status != "done" else ""
+        print(f"{m.id:<22} {m.status:<9} {len(m.iterations):<4} {str(score):<5} {cost_s:<8} {m.risk:<5} {tag}{halt}{m.title}")
 
     for m in ms:
         row(m)

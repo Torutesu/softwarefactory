@@ -91,7 +91,9 @@ Harness → レポート → マージ) を即座に体験できます。
   "sensitive_paths": ["auth", "credential", "password", "secret", "token", "payment", "billing", "crypto", "oauth", "jwt", "session", "permission", "migrat"],
   "small_change_lines": 50,
   "intake_dup_threshold": 0.85,
-  "worktree_copy": [".env", ".env.*", "config/secrets.json", "*.local"]
+  "worktree_copy": [".env", ".env.*", "config/secrets.json", "*.local"],
+  "noprogress_iterations": 2,
+  "require_reviewable": true
 }
 ```
 
@@ -105,6 +107,21 @@ Harness → レポート → マージ) を即座に体験できます。
 - `resume: true` … 反復2回目以降、同一ワーカーのセッションを継続 (`--resume <session-id>`)
 - ミッション単位のモデル指定: `factory mission new ... --model opus` で config を上書き
 - 使用量は `.factory/usage/` に日次+呼び出し時刻を記録 (`factory usage` で表確認)
+
+## ループの停止条件 (halting)
+
+dev ループは次の 3 つの保障で必ず止まります。止まった理由は `mission.json` の
+`halt_reason` に残り、`factory status` / `final.md` / tick の `needs_human` に出ます。
+
+| 保障 | 設定 | `halt_reason` |
+|---|---|---|
+| 反復上限 | ミッションの `max_iterations` | `max_iterations` |
+| 支出上限 | ワーカーの `daily_call_limit` / `window_call_limit` (全滅時) | `all_workers_failed` |
+| **noprogress** | `noprogress_iterations` (既定 2, 0 で無効): ワーカー呼出の前後で作業ツリーの内容 (未コミット・未追跡を含む) が変わらない反復がこの回数連続したら打ち切り。1 回目の時点で次の prompt に警告を載せる | `noprogress` |
+
+加えて dev に入る前の **reviewability ゲート** (`require_reviewable`, 既定 true):
+`build.json` に `test` が無く、ホールドアウトシナリオも無いミッションは「通った」を
+judge の自己申告でしか判定できないため、`blocked` (`unreviewable`) で止めて人間に返します。
 
 ## マージゲート (blast radius ティア)
 

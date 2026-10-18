@@ -32,6 +32,7 @@ class Iteration:
     tokens_in: Optional[int] = None  # 実装ワーカーの入力トークン (成果単価の計測用)
     tokens_out: Optional[int] = None
     cost_usd: Optional[float] = None  # ワーカーが自己報告したコスト (claude CLI 等)
+    changed: Optional[bool] = None  # ワーカー呼出の前後で作業ツリーが変わったか (noprogress 検知)
 
     def to_dict(self) -> dict:
         return vars(self)
@@ -53,6 +54,7 @@ class Mission:
     model: str = ""  # ミッション単位のモデル上書き (空なら config のまま)
     session: dict = field(default_factory=dict)  # {"worker":..., "session_id":...} セッション継続用
     cost_usd: Optional[float] = None  # 実装ワーカー呼出の累計コスト (judge/spec は usage 側に集計)
+    halt_reason: str = ""  # 打ち切り理由: noprogress | max_iterations | all_workers_failed | unreviewable
     created_utc: str = field(default_factory=now_utc_iso)
     updated_utc: str = field(default_factory=now_utc_iso)
     notes: str = ""

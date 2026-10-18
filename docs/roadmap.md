@@ -89,12 +89,12 @@ Firecrawl「Loop Engineering」(2026-06) — 「プログラムがモデルを w
 - [x] **loop の構成要素はほぼ全実装済み**: trigger (listen/supervisor/seed)、isolation
   (worktrees)、codified context (spec/seeds)、writer/reviewer 分離 (judge)、memory
   (mission.json/state.json)。connector は listen (Webhook) のみで MCP は意図的に外し済み
-- **halting の 3 保障のうち 2 つはあり、1 つが欠けている**: 反復上限 (`max_iterations`) と
-  支出上限 (usage daily/window) は実装済み。「**noprogress 検知** (直近 2〜3 反復で
-  実装コミットの実差分がゼロなら打ち切り + needs_human)」が未実装 — 次候補の最有力
-- **loop-shaped チェックの構造化**: repetitive / reviewable / valuable の 3 条件を
-  intake で判定する。`build.json` に test も scenarios も無い (reviewable でない)
-  Seed は intake で `needs_human` にエスカレート — 次 intake ゲート候補
+- [x] **halting の 3 保障**: 反復上限 (`max_iterations`)・支出上限 (usage daily/window) に加え
+  **noprogress 検知** (`noprogress_iterations`, 既定 2): 作業ツリー内容の指紋がワーカー呼出の
+  前後で変わらない反復が連続したら打ち切り + `halt_reason=noprogress` で needs_human
+- [x] **reviewable ゲート**: `build.json` に test も holdout シナリオも無いミッションは dev 前に
+  `blocked` (`unreviewable`)。build.json は spec 生成で決まるため intake ではなく dev 直前で判定。
+  repetitive / valuable の判定は未実装 (人間の Seed 確定に委ねる)
 - **comprehension debt**: 「loop が速いほど理解が遅れる」— マージゲートの人間レビュー
   (behavioral/sensitive) がその防波堤。docs に明文化済み、運用で維持
 
@@ -104,15 +104,17 @@ Anthropic「2026 Agentic Coding Trends Report」(resources.anthropic.com PDF) �
   「エージェント間レビュー」節と同一方向 (Firecrawl 記事と重なり、優先度裏付け)
 - **multi-part specs のハンドオフ表** (Trend 3 相当): why / success / scope (触ってよい
   領域) / risks / when-to-escalate の 5 問を spec に持たせる。本リポジトリの spec テン
-  プレート (spec_generator.SPEC_TEMPLATE) への「scope (触ってよい場所)」「エスカレー
-  ト条件」追加が具体的な次候補 — merge gate のティア判定とも整合
+  プレート (spec_generator.SPEC_TEMPLATE) に「スコープ」「エスカレート条件」を追加済み [x]。
+  why/success/risks は既存の 目的/機能要件/非機能要件 が担う。次: spec のスコープと
+  merge gate の実差分を突き合わせる (スコープ外変更をティア引き上げの根拠にする)
 - 参考数字: multi-file 編集 34%→78%、エンタープライズ採用の拡大。orchestration 前提の
   レビュー容量問題が本命 (dotnet/runtime のレビュアー集中と同型)
 
 Firecrawl「LLM Token Optimization: 9 Techniques in the Order to Apply Them」(2026-10-13) —
 
 - 既適用: prompt caching (prefix 安定化)、context を削る (brief_spec)。
-- 次候補: 出力の上限設計 (judge の comments/priorities の長さ上限)、バッチング
+- [x] 出力の上限設計: judge の comments 400 字 / priorities 3 件×160 字 (prompt 指示 + 切り詰め)
+- 次候補: バッチング
   (複数小タスクの同時投入)、用途別コンテキスト構造の継続見直し。実装は軽いので、
   次回実装バッチに混ぜやすい
 
