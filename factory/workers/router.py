@@ -108,7 +108,14 @@ class Router:
         for n in (pw or []):
             if n in base:
                 preferred.append(n)
-        return preferred + [n for n in base if n not in preferred]
+        out = preferred + [n for n in base if n not in preferred]
+        # bench (factory bench): dev 用途をベンチ variant に固定する。
+        # フォールバックが働くと「どのワーカーで完了したか」が比較の中で変わってしまうため、
+        # dev は1候補 (該当 variant) に限定し、失敗はその variant の失敗として記録する。
+        # judge はこの限りではない (全 variant 共通の器具として通常ルーティング)。
+        if purpose == "dev" and getattr(self.cfg, "bench_lock_dev", False):
+            out = out[:1]
+        return out
 
     # ------------------------------------------------------------------
     def run(self, purpose: str, cwd: Path, prompt: str, timeout: Optional[int] = None,

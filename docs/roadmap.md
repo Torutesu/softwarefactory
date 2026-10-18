@@ -74,9 +74,10 @@
 - [x] **セッション分析の簡易版** (`usage --waste`: 16 アンチパターン相当のうち記録から拾える 4 種)
 - [x] **予算 nudge** (tick `budget_nudges`)
 - [x] **プロンプトの prefix 安定化と再送削除** (spec を先頭へ、反復 2 以降は再掲省略)
-- **ベンチ駆動のパレート最適モデル選択**: 実務ミッションの seed/spec を束ねた社内
-  SWE ベンチを回し、ワーカー×モデルの cost/完了タスク・品質を記録する (`factory bench`
-  相当の仕組み)。これが `purpose_workers` の内容を定期的に更新する根拠になる
+- [x] **ベンチ駆動のパレート最適モデル選択** (`factory bench`): 社内 SWE ベンチをタスク
+  JSON (共通の spec/holdout を同梱) として定義し、dev 用途をワーカーに固定して完了率・
+  score・cost を実測、`dev` 推奨と反映例を出す。次の発展: spec/holdout/judge 用途の
+  テキスト品質比較 (現状は dev のみ)、モデル差分の比較 (`--model` を変えた variant 列挙)
 - **Skill / 手順の自動改善**: judge の `priorities` を束ねて spec テンプレートや
   holdout 生成のガイダンスを更新するループ (記事の Continuous Skill Optimization 相当)
 

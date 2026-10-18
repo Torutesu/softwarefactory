@@ -18,6 +18,7 @@
   holdout     -- シナリオの list / regen (陳腐化リフレッシュ)
   compare-img -- 2枚の PNG 類似度 (UI ベンチ比較の補助)
   usage       -- 使用量レポート
+  bench       -- 社内 SWE ベンチ (ワーカー×タスクの cost/品質比較 → purpose_workers の根拠)
   tick        -- ファクトリークロック 1巡 (--dry-run で計画表示)
   supervisor  -- tick を常駐実行 (自律運転)
   worker ping -- CLI の疎通確認
@@ -59,6 +60,7 @@ def cmd_init(args) -> None:
 
 def cmd_status(args) -> None:
     cfg, f = _require_cfg()
+    show_bench = getattr(args, "all", False)
     watch = getattr(args, "watch", 0) or 0
     if watch:
         import time
@@ -67,10 +69,10 @@ def cmd_status(args) -> None:
             print("\033[2J\033[H", end="", flush=True)
             print("factory dashboard (Ctrl-C で終了)  " + time.strftime("%Y-%m-%d %H:%M:%S"))
             print()
-            _print_status(f)
+            _print_status(f, show_bench=show_bench)
             time.sleep(watch)
     else:
-        _print_status(f)
+        _print_status(f, show_bench=show_bench)
 
 
 def cmd_worker_ping(args) -> None:
@@ -299,19 +301,52 @@ def cmd_usage(args) -> None:
         print(u.waste_report(factory=f, days=args.days))
 
 
-def _print_status(f: Factory) -> None:
+def cmd_bench(args) -> None:
+    cfg, f = _require_cfg()
+    from . import bench as bench_mod
+
+    if args.init:
+        for p in bench_mod.init_sample_tasks(f):
+            print(f"sample task: {p}")
+        print("→ `factory bench --dry-run` で計画を確認してから実行してください")
+        return
+    if args.history:
+        for line in bench_mod.history(f):
+            print(line)
+        return
+    ids = [s.strip() for s in (args.tasks or "").split(",") if s.strip()] or None
+    ws = [s.strip() for s in (args.workers or "").split(",") if s.strip()] or None
+    res = bench_mod.run_bench(f, cfg, workers=ws, task_ids=ids, repeat=args.repeat,
+                              max_iters=args.max_iters, dry_run=args.dry_run)
+    print()
+    print(bench_mod.render_markdown(res))
+
+
+def _print_status(f: Factory, show_bench: bool = False) -> None:
     from .state import mission_cost_usd
 
     ms = f.list_missions()
-    if not ms:
+    bench_ms = [m for m in ms if m.kind == "bench"]
+    ms = [m for m in ms if m.kind != "bench"]  # bench 専用ミッションは bench コマンド側で見る
+    if not ms and not bench_ms:
         print("ミッションなし。`factory mission new` で作成してください。")
         return
     print(f"{'ID':<22} {'STATUS':<9} {'ITER':<4} {'SCORE':<5} {'COST':<8} {'RISK':<5} TITLE")
-    for m in ms:
+
+    def row(m, tag: str = "") -> None:
         score = m.iterations[-1].score if m.iterations and m.iterations[-1].score is not None else "-"
         cost = mission_cost_usd(m)
         cost_s = f"${cost:.2f}" if cost is not None else "-"
-        print(f"{m.id:<22} {m.status:<9} {len(m.iterations):<4} {str(score):<5} {cost_s:<8} {m.risk:<5} {m.title}")
+        print(f"{m.id:<22} {m.status:<9} {len(m.iterations):<4} {str(score):<5} {cost_s:<8} {m.risk:<5} {tag}{m.title}")
+
+    for m in ms:
+        row(m)
+    if show_bench and bench_ms:
+        for m in bench_ms:
+            row(m, tag="[bench] ")
+    elif bench_ms:
+        print(f"(注: bench ミッション {len(bench_ms)} 件を省略 — `factory bench --history` / "
+              "`factory report <id>` で確認、--all で表示)")
 
 
 def cmd_signals(args) -> None:
@@ -454,7 +489,18 @@ def build_parser() -> argparse.ArgumentParser:
     sp = sub.add_parser("status", help="ミッション一覧")
     sp.add_argument("--watch", type=int, nargs="?", const=2, default=None,
                     help="指定秒ごとに再描画するダッシュボード (既定 2 秒)")
+    sp.add_argument("--all", action="store_true", help="bench 専用ミッションも表示")
     sp.set_defaults(fn=cmd_status)
+
+    sp = sub.add_parser("bench", help="社内 SWE ベンチ: ワーカー×タスクの cost/品質を比較")
+    sp.add_argument("--tasks", default="", help="タスクID (カンマ区切り。省略で全タスク)")
+    sp.add_argument("--workers", default="", help="ワーカー名 (カンマ区切り。省略で利用可能な全ワーカー)")
+    sp.add_argument("--repeat", type=int, default=1, help="各組合せの反復回数 (分散を見る)")
+    sp.add_argument("--max-iters", type=int, default=None, help="タスクの反復上限を上書き")
+    sp.add_argument("--dry-run", action="store_true", help="実行せず planned matrix を表示")
+    sp.add_argument("--init", action="store_true", help="サンプルタスクを .factory/bench/tasks/ に書き出す")
+    sp.add_argument("--history", action="store_true", help="保存済みベンチ結果の一覧を表示")
+    sp.set_defaults(fn=cmd_bench)
 
     sp = sub.add_parser("signals", help="取り込んだシグナルの一覧")
     sp.set_defaults(fn=cmd_signals)

@@ -134,6 +134,7 @@ AI コーディングのコストは「どこにトークンが向かったか�
 | レバー | コマンド / 設定 |
 |---|---|
 | **用途別ルーティング**: spec/holdout/judge (テキスト生成) を安いワーカーへ、dev を高価 but 強いワーカーへ | config `purpose_workers: {"spec": ["opencode"], "judge": ["claude_code"], ...}` (無指定なら従来の `judge_worker`) |
+| **ベンチ駆動のモデル選択**: 実測で purpose_workers を更新する根拠 | `factory bench` — 全員に共通の spec/holdout で出題し、ワーカー別の完了率・score・cost を計測 (詳細は `docs/ops.md` の「社内 SWE ベンチ」) |
 | **成果単価**: ミッションあたりのコスト/トークン | `factory status` の COST 列、`factory report <id>` の反復表 (自己報告値のあるワーカーのみ) |
 | **セッション分析**: 無駄の兆候検出 | `factory usage --waste` — 失敗率の高いワーカー / 単価の前日比急増 / 反復上限ギリギリ合格 / 失敗ミッション |
 | **予算 nudge**: 枠の消費を事前に見せる | `factory tick` 出力の `budget_nudges` (使用率 50% / 80% で表示) |
@@ -215,6 +216,7 @@ factory pr <id>              # origin + gh があれば PR 作成、無ければ
 | `pr <id> [--base B]` | PR 作成 (gh 無ければ下書き) |
 | `compare-img a.png b.png` | 2枚の PNG 類似度 |
 | `usage [--days N] [--waste]` | 使用量レポート (+ セッション分析) |
+| `bench [--init] [--dry-run] [--workers a,b] [--repeat N]` | 社内 SWE ベンチ (purpose_workers の更新根拠) |
 | `tick [--dry-run]` | ファクトリークロック 1巡 (取込→実行→出荷→カナリア→修復) |
 | `supervisor [--interval N]` | tick を常駐で回す (自律運転) |
 

@@ -147,6 +147,32 @@ bin/factory usage --waste             # + 無駄の兆候: 失敗率の高いワ
 cost はワーカーが自己報告する値 (claude CLI の total_cost 等) のみ記録する。
 subscript 枠運用では「0 円」でも枠消費は `calls` / usage 窓で見る。
 
+## 社内 SWE ベンチ: purpose_workers を実測で更新する (factory bench)
+
+Uber の「ベンチ駆動のパレート最適モデル選択」相当。purpose_workers を感覚で書かず、
+実測 (完了率 / score / cost) を根拠に更新する。
+
+```bash
+bin/factory bench --init                # サンプルタスク (.factory/bench/tasks/demo-notes.json) を書き出す
+bin/factory bench --dry-run             # 実行する matrix (タスク×ワーカー) を確認
+bin/factory bench                       # 全タスク × 利用可能ワーカーを 1 巡ずつ実行
+bin/factory bench --workers mock_a, claude_code --repeat 3   # 特定ワーカーで分散を見る
+bin/factory bench --history             # 保存済み結果 (.factory/bench/results/) の一覧
+```
+
+- タスクは `.factory/bench/tasks/<id>.json`。**全ワーカーで同一出題**を保証するため、
+  spec.md (インライン or `spec_file`) と build 設定、holdout シナリオをタスク自体が持ち、
+  生成フェーズ (spec generator / holdout generator) をスキップする。
+- 各実行は bench 専用ミッション (`kind="bench"`) を作る → `factory status` の既定表示からは
+  隠れる (`--all` で表示)。worktree・コミット・usage は本番と同じ機構を通る。
+- dev 用途だけをベンチ対象ワーカーに**固定**し (フォールバック禁止)、失敗はそのワーカーの失敗
+  として記録する。judge は固定せず全ワーカーで共通の器具として動く。
+- 結果は markdown 表 (行ごとのトークン/コスト + ワーカー別順位) と「`dev` 推奨」の提案で出る。
+  **config への反映は手動** — 提案をそのまま `purpose_workers` に書いてよいかは内容を見て判断する。
+
+注意: 実 CLI ワーカー (`claude_code` など) でのベンチは本物の枠とコストを消す。
+`--dry-run` で matrix を先に絞り、`--tasks` で対象タスクを限定する。
+
 ## 自律運転: tick (ファクトリークロック) と supervisor
 
 1 回の tick は「取込 → 実行 → 出荷 → カナリア → 修復」の一巡:
