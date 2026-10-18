@@ -1,0 +1,49 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+    paths-ignore: ["docs/**", "**/*.md"]
+  pull_request:
+    paths-ignore: ["docs/**", "**/*.md"]
+  workflow_dispatch:
+
+# 同じブランチの古い実行は止める (runner の占有とコストを抑える)
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    # 既定は Mac mini の self-hosted runner (GitHub Actions の分課金なし)。
+    # runner 未登録・停止中は repo 変数 CI_RUNS_ON に '"ubuntu-latest"' を入れると GitHub ホストに戻る。
+    runs-on: ${{ fromJSON(vars.CI_RUNS_ON || '["self-hosted","macOS","factory"]') }}
+    # self-hosted runner でフォークの PR コードを動かさない (runner 上の認証情報を守る)
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    timeout-minutes: 20
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      # Mac mini には本物の claude / codex / opencode がログイン済みで入っている。テストが誤って
+      # 呼ぶとサブスク枠を消費するので、失敗するスタブを PATH の先頭に置く
+      - name: Guard real worker CLIs
+        run: |
+          stub="$RUNNER_TEMP/worker-stubs"
+          mkdir -p "$stub"
+          for c in claude codex opencode; do
+            printf '#!/bin/sh\necho "worker CLI %s must not run in CI" >&2\nexit 97\n' "$c" > "$stub/$c"
+            chmod +x "$stub/$c"
+          done
+          echo "$stub" >> "$GITHUB_PATH"
+          echo "OPENROUTER_API_KEY=" >> "$GITHUB_ENV"
+
+      - name: Python
+        run: python3 --version
+
+      - name: Unit + integration tests (mock worker)
+        run: python3 -m unittest discover -s tests -p 'test_*.py' -t .

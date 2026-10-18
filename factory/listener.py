@@ -1,15 +1,26 @@
 """Webhook リスナー: 外部シグナル → Seed 化 (必要なら Mission 自動作成/実行)。
 
     factory listen --port 8787 [--bind 127.0.0.1] [--project demo_app] [--auto-create] [--auto-run]
+                   [--secret S | env FACTORY_LISTEN_SECRET]
 
 POST /signals
     {"title": "...", "body": "...", "source": "...", "files": {"name": "text"}}
+    認証 (secret 設定時は必須。どちらか):
+      X-Hub-Signature-256: sha256=<HMAC-SHA256(secret, body) hex>   (GitHub 互換; X-Factory-Signature も可)
+      Authorization: Bearer <secret>
 
 GET /health → {"ok": true}
+
+受け取った本文は最終的に「確認なしで動く Worker」への prompt になる。ループバック以外で
+待ち受けるときは secret を必須とし、本文サイズにも上限を設ける。
 """
 from __future__ import annotations
 
+import hashlib
+import hmac
+import ipaddress
 import json
+import os
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -18,6 +29,32 @@ from typing import Optional
 from .ingest import create_from_payload
 from .state import Factory
 from .util import now_utc_iso
+
+MAX_BODY_BYTES = 1_000_000
+SECRET_ENV = "FACTORY_LISTEN_SECRET"
+
+
+def is_loopback(bind: str) -> bool:
+    if bind == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(bind).is_loopback
+    except ValueError:
+        return False
+
+
+def verify_request(secret: str, headers, raw: bytes) -> bool:
+    """secret 未設定なら常に True。設定時は HMAC 署名か Bearer のどちらかが一致すること。"""
+    if not secret:
+        return True
+    sig = headers.get("X-Hub-Signature-256") or headers.get("X-Factory-Signature") or ""
+    if sig:
+        expected = "sha256=" + hmac.new(secret.encode("utf-8"), raw, hashlib.sha256).hexdigest()
+        return hmac.compare_digest(sig.strip(), expected)
+    auth = headers.get("Authorization") or ""
+    if auth.startswith("Bearer "):
+        return hmac.compare_digest(auth[len("Bearer "):].strip(), secret)
+    return False
 
 
 class Listener:
@@ -88,8 +125,15 @@ class Listener:
         return out
 
 
-def serve(factory: Factory, port: int = 8787, bind: str = "127.0.0.1",
-          project: str = "", auto_create: bool = False, auto_run: bool = False, cfg=None) -> None:
+def make_server(factory: Factory, port: int = 8787, bind: str = "127.0.0.1",
+                project: str = "", auto_create: bool = False, auto_run: bool = False, cfg=None,
+                secret: Optional[str] = None, max_body: int = MAX_BODY_BYTES) -> ThreadingHTTPServer:
+    secret = secret if secret is not None else os.environ.get(SECRET_ENV, "")
+    if not secret and not is_loopback(bind):
+        raise SystemExit(f"エラー: --bind {bind} (ループバック以外) では --secret か {SECRET_ENV} が必須です")
+    if not secret and auto_run:
+        print(f"[listen] 警告: secret なしで --auto-run です。同じマシン上の任意のプロセスがミッションを"
+              f"実行できます ({SECRET_ENV} の設定を推奨)", flush=True)
     listener = Listener(factory, project=project, auto_create=auto_create, auto_run=auto_run, cfg=cfg)
 
     class Handler(BaseHTTPRequestHandler):
@@ -101,14 +145,28 @@ def serve(factory: Factory, port: int = 8787, bind: str = "127.0.0.1",
         def do_POST(self):
             if self.path not in ("/signals", "/signal"):
                 return self._json(404, {"error": "not found"})
-            n = int(self.headers.get("Content-Length") or 0)
+            try:
+                n = int(self.headers.get("Content-Length") or 0)
+            except ValueError:
+                return self._json(400, {"error": "invalid content-length"})
+            if n < 0:
+                return self._json(400, {"error": "invalid content-length"})
+            if n > max_body:
+                return self._json(413, {"error": f"body too large (max {max_body} bytes)"})
             raw = self.rfile.read(n) if n else b"{}"
+            if not verify_request(secret, self.headers, raw):
+                listener.log(f"unauthorized signal from {self.client_address[0]}")
+                return self._json(401, {"error": "unauthorized"})
             try:
                 payload = json.loads(raw.decode("utf-8"))
             except (json.JSONDecodeError, UnicodeDecodeError):
                 return self._json(400, {"error": "invalid json"})
+            if not isinstance(payload, dict):
+                return self._json(400, {"error": "payload must be an object"})
             try:
                 out = listener.handle_signal(payload)
+            except ValueError as e:
+                return self._json(400, {"error": str(e)})
             except Exception as e:  # noqa
                 listener.log(f"error: {e}")
                 return self._json(500, {"error": str(e)})
@@ -125,8 +183,16 @@ def serve(factory: Factory, port: int = 8787, bind: str = "127.0.0.1",
         def log_message(self, *args):  # 静かに
             pass
 
-    server = ThreadingHTTPServer((bind, port), Handler)
-    print(f"信号受付中: http://{bind}:{port}/signals  (Ctrl-C で終了)", flush=True)
+    return ThreadingHTTPServer((bind, port), Handler)
+
+
+def serve(factory: Factory, port: int = 8787, bind: str = "127.0.0.1",
+          project: str = "", auto_create: bool = False, auto_run: bool = False, cfg=None,
+          secret: Optional[str] = None) -> None:
+    server = make_server(factory, port=port, bind=bind, project=project, auto_create=auto_create,
+                         auto_run=auto_run, cfg=cfg, secret=secret)
+    auth = "認証あり" if (secret or os.environ.get(SECRET_ENV)) else "認証なし (ループバックのみ)"
+    print(f"信号受付中: http://{bind}:{port}/signals  [{auth}] (Ctrl-C で終了)", flush=True)
     print(f"  health:  http://{bind}:{port}/health", flush=True)
     try:
         server.serve_forever()

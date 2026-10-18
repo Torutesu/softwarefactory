@@ -7,6 +7,8 @@
 from __future__ import annotations
 
 import json
+import os
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Optional
@@ -49,6 +51,53 @@ class Scenario:
         steps = [Step(**{k: v for k, v in st.items() if k in Step.__dataclass_fields__}) for st in d.get("steps", [])]
         return cls(id=d["id"], title=d.get("title", d["id"]), weight=float(d.get("weight", 1.0)),
                    steps=steps, notes=d.get("notes", ""))
+
+
+# ---------------------------------------------------------------------------
+# 実装 Worker からの隔離
+# ---------------------------------------------------------------------------
+# Worker は確認なしモード (--dangerously-skip-permissions 等) で動くため、prompt の
+# 「holdout/ を触らない」だけでは読めてしまう。dev 呼出の間だけディレクトリを 000 にして
+# OS の権限で塞ぎ、呼出後に Worker の出力にパスが出ていないかを検査する (二重の防壁)。
+# root で動かすと権限は効かないので、ファクトリは一般ユーザーで運用すること。
+_UNSEALED_MODE = 0o755
+
+
+@contextmanager
+def sealed(factory: Factory, mid: str):
+    """dev Worker の実行中だけ holdout/<mid> を読めなくする。"""
+    d = factory.holdout_dir_for(mid)
+    if not d.is_dir():
+        yield
+        return
+    os.chmod(d, 0)
+    try:
+        yield
+    finally:
+        os.chmod(d, _UNSEALED_MODE)
+
+
+def unseal_if_stale(factory: Factory, mid: str) -> bool:
+    """前回の実行が kill されて 000 のまま残っていたら戻す (ミッションロック内で呼ぶ)。"""
+    d = factory.holdout_dir_for(mid)
+    if d.is_dir() and (d.stat().st_mode & 0o777) == 0:
+        os.chmod(d, _UNSEALED_MODE)
+        return True
+    return False
+
+
+def leak_markers(factory: Factory, mid: str) -> List[str]:
+    """Worker の出力に現れたらホールドアウトへの到達を疑う文字列 (prompt には含めないもの)。"""
+    d = factory.holdout_dir_for(mid)
+    return [str(d.resolve()), f"holdout/{mid}"]
+
+
+def detect_leak(factory: Factory, mid: str, *texts: str) -> Optional[str]:
+    for marker in leak_markers(factory, mid):
+        for t in texts:
+            if t and marker in t:
+                return marker
+    return None
 
 
 def scenario_files(factory: Factory, mid: str) -> List[Path]:

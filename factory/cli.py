@@ -421,6 +421,7 @@ def cmd_listen(args) -> None:
         auto_create=args.auto_create,
         auto_run=args.auto_run,
         cfg=cfg,
+        secret=args.secret,
     )
 
 
@@ -537,6 +538,9 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--project", default="", help="--auto-create 時の既定プロジェクト")
     sp.add_argument("--auto-create", action="store_true", help="シグナル受信でミッションを自動作成")
     sp.add_argument("--auto-run", action="store_true", help="さらに自動実行 (--auto-create 必要)")
+    sp.add_argument("--secret", default=None,
+                    help="署名/Bearer 検証の共有シークレット (既定: env FACTORY_LISTEN_SECRET)。"
+                         "ループバック以外で待ち受けるときは必須")
     sp.set_defaults(fn=cmd_listen)
 
     sp = sub.add_parser("holdout", help="holdout シナリオの list / regen")
