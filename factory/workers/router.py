@@ -109,11 +109,14 @@ class Router:
             if n in base:
                 preferred.append(n)
         out = preferred + [n for n in base if n not in preferred]
-        # bench (factory bench): dev 用途をベンチ variant に固定する。
+        # bench (factory bench): 用途をベンチ variant に固定する。
         # フォールバックが働くと「どのワーカーで完了したか」が比較の中で変わってしまうため、
-        # dev は1候補 (該当 variant) に限定し、失敗はその variant の失敗として記録する。
+        # 対象用途は1候補 (該当 variant) に限定し、失敗はその variant の失敗として記録する。
+        # dev 以外の比較 (purpose=spec の spec 品質比較など) は bench_lock_purpose で指定する。
         # judge はこの限りではない (全 variant 共通の器具として通常ルーティング)。
-        if purpose == "dev" and getattr(self.cfg, "bench_lock_dev", False):
+        lock_dev = purpose == "dev" and getattr(self.cfg, "bench_lock_dev", False)
+        lock_any = purpose == getattr(self.cfg, "bench_lock_purpose", "")
+        if lock_dev or lock_any:
             out = out[:1]
         return out
 

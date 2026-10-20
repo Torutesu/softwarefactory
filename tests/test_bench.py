@@ -111,7 +111,7 @@ class TestBench(unittest.TestCase):
         res = bench_mod.run_bench(self.f, cfg)
         rows = res["rows"]
         self.assertEqual(len(rows), 2)
-        self.assertEqual({r["worker"] for r in rows}, {"mock_a", "mock_b"})
+        self.assertEqual({r["variant"] for r in rows}, {"mock_a", "mock_b"})
         for r in rows:
             self.assertEqual(r["status"], "done")
             self.assertEqual(r["iters"], 1)

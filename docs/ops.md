@@ -160,21 +160,34 @@ Uber の「ベンチ駆動のパレート最適モデル選択」相当。purpos
 
 ```bash
 bin/factory bench --init                # サンプルタスク (.factory/bench/tasks/demo-notes.json) を書き出す
-bin/factory bench --dry-run             # 実行する matrix (タスク×ワーカー) を確認
+bin/factory bench --dry-run             # 実行する matrix (タスク×variant) を確認
 bin/factory bench                       # 全タスク × 利用可能ワーカーを 1 巡ずつ実行
-bin/factory bench --workers mock_a, claude_code --repeat 3   # 特定ワーカーで分散を見る
+bin/factory bench --workers claude_code,claude_code@opus --repeat 3   # モデル差も比較できる
 bin/factory bench --history             # 保存済み結果 (.factory/bench/results/) の一覧
 ```
 
-- タスクは `.factory/bench/tasks/<id>.json`。**全ワーカーで同一出題**を保証するため、
-  spec.md (インライン or `spec_file`) と build 設定、holdout シナリオをタスク自体が持ち、
-  生成フェーズ (spec generator / holdout generator) をスキップする。
+- **variant = `ワーカー名` か `ワーカー名@モデル`** (`--workers "claude_code@sonnet"`)。
+  `@モデル` 指定時は全 worker 定義の model を差し替えて実行する (opus と sonnet の
+  コスト・品質比較を 1 回のベンチで取れる)。
+- タスクは `.factory/bench/tasks/<id>.json`。purpose で 2 種類の実行経路がある:
+
+  | purpose | 出題 | 採点 | 用途 |
+  |---|---|---|---|
+  | `dev` (既定) | spec.md + build 設定 + holdout シナリオを事前投入 (生成フェーズをスキップ) | Harness (build/test/シナリオ) + judge | dev ワーカーの完了率・score・cost 比較 |
+  | `spec` | seed から spec を生成させる (spec.md は事前投入しない) | **参照 spec** (`reference_spec`) との照合採点 (judge, 全 variant 共通) | spec 生成の品質比較 — どのワーカーが人の意図を正確に仕様化できるか |
+
+  purpose=spec のワークフロー: 1) 人間が正解となる `reference_spec` をタスクに同梱、
+  2) 各 variant が `seeds/<seed>` のシグナルから spec を生成、3) judge がカバレッジ/
+  実現可能性/handoff (scope・エスカレーション条件) を 0-100 採点、4) `spec.md` は
+  missions/<id>/ 配下に保存、参照 spec は holdout 領域で隔離される。
 - 各実行は bench 専用ミッション (`kind="bench"`) を作る → `factory status` の既定表示からは
-  隠れる (`--all` で表示)。worktree・コミット・usage は本番と同じ機構を通る。
-- dev 用途だけをベンチ対象ワーカーに**固定**し (フォールバック禁止)、失敗はそのワーカーの失敗
-  として記録する。judge は固定せず全ワーカーで共通の器具として動く。
-- 結果は markdown 表 (行ごとのトークン/コスト + ワーカー別順位) と「`dev` 推奨」の提案で出る。
-  **config への反映は手動** — 提案をそのまま `purpose_workers` に書いてよいかは内容を見て判断する。
+  隠れる (`--all` で表示)。run_mission 経由 (dev) は worktree・コミット・usage が本番と同じ
+  機構を通る。purpose=spec はテキスト生成のため worktree を作らず、usage のみ記録する。
+- 対象用途のワーカーを**固定**し (フォールバック禁止)、失敗はその variant の失敗として
+  記録する。judge は固定せず全 variant で共通の器具として動く。
+- 結果は目的 (`dev` / `spec`) ごとに集計し、markdown 表 (行ごとのトークン/コスト +
+  variant 別順位) と「`dev` / `spec` 推奨」の提案で出る。**config への反映は手動** —
+  提案をそのまま `purpose_workers` に書いてよいかは内容を見て判断する。
 
 注意: 実 CLI ワーカー (`claude_code` など) でのベンチは本物の枠とコストを消す。
 `--dry-run` で matrix を先に絞り、`--tasks` で対象タスクを限定する。

@@ -143,7 +143,7 @@ Uber の記事 *Running a Software Factory Efficiently at Uber Scale* (2026-08) 
 
 | 記事のレバー | 本リポジトリの実装 |
 |---|---|
-| Price/token: ベンチ駆動のモデル選択・「サブエージェントは安いモデル」 | **`factory bench`**: ワーカー×タスクの実測 (完了率・score・cost) を `.factory/bench/results/` に残し、`dev` の推奨を出す。実測で `purpose_workers` を更新する根拠にする。**`purpose_workers`** (config): 用途 (spec/holdout/dev/judge) ごとに優先ワーカーを指定。テキスト生成系を安いワーカーへ・dev をスキルフルなワーカーへ。`judge_worker` の一般化 (後方互換あり) |
+| Price/token: ベンチ駆動のモデル選択・「サブエージェントは安いモデル」 | **`factory bench`**: ワーカー×タスクの実測 (完了率・score・cost) を `.factory/bench/results/` に残し、`dev` の推奨を出す。実測で `purpose_workers` を更新する根拠にする。variant は `名前@モデル` でモデル差も比較。purpose=spec のタスクは seed から spec を生成させ、人間が用意した参照 spec との照合採点 (judge は全 variant 共通) で spec 生成品質を比較 — 「意図を仕様にできる腕」は dev の腕と別に測る。**`purpose_workers`** (config): 用途 (spec/holdout/dev/judge) ごとに優先ワーカーを指定。テキスト生成系を安いワーカーへ・dev をスキルフルなワーカーへ。`judge_worker` の一般化 (後方互換あり) |
 | Tokens/request: prompt prefix の安定化・再送の削減 | dev プロンプトは **spec を最初に**置き (セッション内で接頭辞が安定)、反復 2 以降で同一セッションを resume している場合 **spec 全文の再送を省略** (`brief_spec`) |
 | Requests/turn: context engineering | ホールドアウト + spec + 検証結果を毎反復に渡す (グラウンドされた材料を先に渡す方針)。未解決課題: リポジトリ横断の知識インデックス (roadmap) |
 | Managed agents: 成果物単価 (cost per merged PR) | `Iteration.tokens_in/out/cost_usd` を記録し、`Mission.cost_usd` に累積。`factory status` の COST 列、`factory report` の反復表、usage の「ミッション単位」節で眺められる (自己報告値のあるワーカーのみ) |
