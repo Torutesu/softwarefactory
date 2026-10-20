@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import contextlib
 import json
 import os
 import re
@@ -68,6 +69,27 @@ def save_text(path: Path, text: str) -> None:
     path = Path(path)
     ensure_dir(path.parent)
     path.write_text(text, encoding="utf-8")
+
+
+@contextlib.contextmanager
+def locked(path: Path):
+    """同一パスへの read-modify-write を flock で直列化する。
+
+    run-all --parallel ( ThreadPool ) / supervisor 同時実行時に state.json や
+    usage の「読んで→書く」が交錯して片方の更新を落とすのを防ぐための最小限の排他。
+    既定のロックファイルは `<path>.lock` (中身は使わない inode 目的)。
+    """
+    import fcntl
+
+    path = Path(path)
+    ensure_dir(path.parent)
+    lockfile = path.parent / (path.name + ".lock")
+    with open(lockfile, "a+", encoding="utf-8") as fh:
+        fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
 
 
 def run_cmd(args, cwd=None, timeout=None, env=None) -> ProcResult:

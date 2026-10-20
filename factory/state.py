@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Optional
 
-from .util import load_json, now_utc_iso, save_json
+from .util import load_json, locked, now_utc_iso, save_json
 
 STATUSES = ["queued", "spec", "holdout", "dev", "done", "failed", "blocked"]
 # dev 以降の実行は spec / holdout がそろっている必要がある
@@ -146,35 +146,45 @@ class Factory:
     def save_state(self, st: dict) -> None:
         save_json(self.state_file, st)
 
+    def _mutate_state(self, fn) -> None:
+        """state.json を読んで変更して戻す RMW を flock で直列化 (並列実行のロスト防止)。"""
+        with locked(self.state_file):
+            st = self.state()
+            fn(st)
+            self.save_state(st)
+
     def index_mission(self, m: Mission) -> None:
-        st = self.state()
-        st.setdefault("missions", {})[m.id] = {
-            "id": m.id,
-            "title": m.title,
-            "status": m.status,
-            "project": m.project,
-            "seed": m.seed,
-            "updated_utc": m.updated_utc,
-        }
-        self.save_state(st)
+        def fn(st: dict):
+            st.setdefault("missions", {})[m.id] = {
+                "id": m.id,
+                "title": m.title,
+                "status": m.status,
+                "project": m.project,
+                "seed": m.seed,
+                "updated_utc": m.updated_utc,
+            }
+
+        self._mutate_state(fn)
 
     def event(self, kind: str, detail: str = "") -> None:
-        st = self.state()
-        st.setdefault("events", []).append({"ts": now_utc_iso(), "kind": kind, "detail": detail[:500]})
-        st["events"] = st["events"][-1000:]
-        self.save_state(st)
+        def fn(st: dict):
+            st.setdefault("events", []).append({"ts": now_utc_iso(), "kind": kind, "detail": detail[:500]})
+            st["events"] = st["events"][-1000:]
+
+        self._mutate_state(fn)
 
     def add_signal(self, seed: str, source: str, mission: str = "", detail: str = "") -> None:
-        st = self.state()
-        st.setdefault("signals", []).append({
-            "ts": now_utc_iso(),
-            "seed": seed,
-            "source": source,
-            "mission": mission,
-            "detail": detail[:300],
-        })
-        st["signals"] = st["signals"][-2000:]
-        self.save_state(st)
+        def fn(st: dict):
+            st.setdefault("signals", []).append({
+                "ts": now_utc_iso(),
+                "seed": seed,
+                "source": source,
+                "mission": mission,
+                "detail": detail[:300],
+            })
+            st["signals"] = st["signals"][-2000:]
+
+        self._mutate_state(fn)
 
     # ---------- missions ----------------------------------------------
     def create_mission(

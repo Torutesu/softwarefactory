@@ -76,8 +76,10 @@
 - [x] **プロンプトの prefix 安定化と再送削除** (spec を先頭へ、反復 2 以降は再掲省略)
 - [x] **ベンチ駆動のパレート最適モデル選択** (`factory bench`): 社内 SWE ベンチをタスク
   JSON (共通の spec/holdout を同梱) として定義し、dev 用途をワーカーに固定して完了率・
-  score・cost を実測、`dev` 推奨と反映例を出す。次の発展: spec/holdout/judge 用途の
-  テキスト品質比較 (現状は dev のみ)、モデル差分の比較 (`--model` を変えた variant 列挙)
+  score・cost を実測、`dev` 推奨と反映例を出す
+- [x] **ベンチの発展**: purpose=spec (seed から spec を生成させ、参照 spec との照合採点
+  で品質比較 — どのワーカーが人の意図を仕様化できるか測る) + `名前@モデル` variant
+  (opus/sonnet 等モデル差分も 1 巡で比較)。集計・提案は目的 (dev/spec) ごと
 - **Skill / 手順の自動改善**: judge の `priorities` を束ねて spec テンプレートや
   holdout 生成のガイダンスを更新するループ (記事の Continuous Skill Optimization 相当)
 
@@ -127,8 +129,14 @@ Firecrawl「LLM Token Optimization: 9 Techniques in the Order to Apply Them」(2
 - [x] **CI**: `.github/workflows/ci.yml` (既定 self-hosted Mac mini、ワーカー CLI スタブで枠消費を防止)
 - [x] **Mac mini 常駐**: `deploy/macmini/install.sh` (launchd LaunchAgent, caffeinate, キーチェーンの secret)
 - [x] **judge 省略**: harness 失敗時は judge を呼ばない (`judge_on_harness_fail`)
-- 次候補: judge 入力をワーカーの自己申告から `git diff` 要約へ寄せる / `state.json` の
-  read-modify-write にロック / worktree 掃除コマンド / 封印の macOS sandbox-exec 化 (root 運用でも効く隔離)
+- [x] **state.json / usage の RMW ロック**: `util.locked()` (flock) で state.json の
+  event/signal/mission index と usage 日次ファイルの「読んで→書く」を直列化
+  (`run-all --parallel` / supervisor 併走時のロストアップデート防止)。書き込みは既存の
+  tmp+rename 原子替えと併用
+- [x] **worktree 掃除コマンド**: `factory worktrees [--dry-run] [--force-failed]` —
+  done/bench ミッションの worktree を掃除。failed は調査用に既定で残す
+- 次候補: judge 入力をワーカーの自己申告から `git diff` 要約へ寄せる /
+  封印の macOS sandbox-exec 化 (root 運用でも効く隔離)
 
 ## 保守メモ
 

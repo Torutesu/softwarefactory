@@ -14,7 +14,7 @@ from typing import Optional
 
 from .config import WorkerConfig
 from .state import mission_cost_usd
-from .util import ensure_dir, load_json, save_json, today_local
+from .util import ensure_dir, load_json, locked, save_json, today_local
 
 DEFAULT_WINDOW_MINUTES = 300  # サブスク系の 5 時間窓を想定
 MAX_TS = 2000
@@ -41,22 +41,30 @@ class Usage:
         cost_usd: Optional[float] = None,
     ) -> None:
         day = today_local()
-        d = self._day_dict(day)
-        w = d["workers"].setdefault(worker, {"calls": 0, "fails": 0, "seconds": 0.0})
-        w["calls"] += 1
-        if not ok:
-            w["fails"] += 1
-        w["seconds"] = round(w.get("seconds", 0.0) + seconds, 1)
-        w.setdefault("calls_by_purpose", {})
-        w["calls_by_purpose"][purpose] = w["calls_by_purpose"].get(purpose, 0) + 1
-        ts = dt.datetime.now(dt.timezone.utc).isoformat()
-        w.setdefault("ts_list", [])
-        w["ts_list"] = (w["ts_list"] + [ts])[-MAX_TS:]
-        for key, val in (("tokens_in", tokens_in), ("tokens_out", tokens_out), ("cost_usd", cost_usd)):
-            if val is None:
-                continue
-            w[key] = w.get(key, 0) + val
-        save_json(self._file(day), d)
+        # 読んで→書くの区間全体を flock (run-all --parallel / supervisor 並列時のロスト防止)
+        with locked(self._file(day)):
+            d = self._day_dict(day)
+            w = d["workers"].setdefault(worker, {"calls": 0, "fails": 0, "seconds": 0.0})
+            w["calls"] += 1
+            if not ok:
+                w["fails"] += 1
+            w["seconds"] = round(w.get("seconds", 0.0) + seconds, 1)
+            w.setdefault("calls_by_purpose", {})
+            w["calls_by_purpose"][purpose] = w["calls_by_purpose"].get(purpose, 0) + 1
+            ts = dt.datetime.now(dt.timezone.utc).isoformat()
+            w.setdefault("ts_list", [])
+            w["ts_list"] = (w["ts_list"] + [ts])[-MAX_TS:]
+            for key, val in (("tokens_in", tokens_in), ("tokens_out", tokens_out), ("cost_usd", cost_usd)):
+                if val is None:
+                    continue
+                w[key] = w.get(key, 0) + val
+            save_json(self._file(day), d)
+
+    def _file(self, day: str) -> Path:
+        return self.dir / f"{day}.json"
+
+    def _day_dict(self, day: str) -> dict:
+        return load_json(self._file(day), {"day": day, "workers": {}}) or {"day": day, "workers": {}}
 
     # ------------------------------------------------------------------
     def today(self) -> dict:

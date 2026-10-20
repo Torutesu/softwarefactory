@@ -21,6 +21,7 @@
   bench       -- 社内 SWE ベンチ (ワーカー×タスクの cost/品質比較 → purpose_workers の根拠)
   tick        -- ファクトリークロック 1巡 (--dry-run で計画表示)
   supervisor  -- tick を常駐実行 (自律運転)
+  worktrees   -- たまった worktree の掃除 (完了/bench 対象, 失敗は残す)
   worker ping -- CLI の疎通確認
 """
 from __future__ import annotations
@@ -117,6 +118,59 @@ def cmd_supervisor(args) -> None:
     from .supervisor import supervise
 
     supervise(f, cfg, interval=max(5, args.interval))
+
+
+def cmd_worktrees(args) -> None:
+    """worktree の生涯管理: 完了/bench ミッションの worktree を掃除する入口。
+
+    失敗ミッションの worktree は調査用に既定では残す (--force-failed で消す)。
+    main worktree やファクトリ管理外の worktree には触れない。
+    """
+    cfg, f = _require_cfg()
+    from . import gitx
+
+    def repo_of(m):
+        repo = Path(m.repo) if Path(m.repo).is_absolute() else f.root / m.repo
+        return repo
+
+    repo_cache: dict = {}
+    rows = []
+    for m in f.list_missions():
+        repo = repo_of(m)
+        if not repo.exists():
+            continue
+        listing = repo_cache.setdefault(repo.resolve(), gitx.worktrees(repo.resolve()))
+        if not listing:
+            continue
+        wt = f.worktree(m.id)
+        actual = {w["path"].resolve() for w in listing}
+        if not any(wt.resolve() == p or wt.resolve() in p.parents for p in actual):
+            continue  # 関連 worktree が存在しない (掃除済み)
+        removable = (m.status == "done" or m.kind == "bench" or args.force_failed)
+        rows.append((m, repo.resolve(), removable))
+
+    if not rows:
+        print("掃除対象の worktree はありません")
+        return
+    changed = False
+    for m, repo_path, removable in rows:
+        if removable and not args.dry_run:
+            try:
+                gitx.remove_worktree(repo_path, f.worktree(m.id), force=True)
+                f.event("worktree_pruned", m.id)
+                print(f"[削除] {m.id} status={m.status} kind={m.kind}/{m.title[:28]}")
+                changed = True
+                continue
+            except Exception as e:  # noqa — 1 ミッション失敗で止めない
+                print(f"[失敗] {m.id}: 削除に失敗 {e}", file=sys.stderr)
+                continue
+        tag = "保留" if not removable else "(dry-run)"
+        hint = "(失敗ミッションは調査用に残す: --force-failed で消せる)" if not removable else ""
+        print(f"[{tag}] {m.id} status={m.status} kind={m.kind}/{m.title[:28]} {hint}")
+    if args.dry_run:
+        print("(dry-run: 変更していません)", file=sys.stderr)
+    elif changed:
+        print("worktree を掃除しました")
 
 
 def cmd_seed(args) -> None:
@@ -624,6 +678,11 @@ def build_parser() -> argparse.ArgumentParser:
     sp = sub.add_parser("supervisor", help="tick を常駐で回し続ける")
     sp.add_argument("--interval", type=int, default=300, help="tick 間隔秒 (既定 300)")
     sp.set_defaults(fn=cmd_supervisor)
+
+    sp = sub.add_parser("worktrees", help="worktree の掃除 (完了/bench 分を対象, 失敗は残す)")
+    sp.add_argument("--dry-run", action="store_true", help="削除せず対象だけ表示")
+    sp.add_argument("--force-failed", action="store_true", help="失敗ミッションの worktree も削除")
+    sp.set_defaults(fn=cmd_worktrees)
 
     return p
 

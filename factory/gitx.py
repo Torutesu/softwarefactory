@@ -115,6 +115,30 @@ def status_porcelain(wt: Path) -> str:
     return _git(wt, "status", "--porcelain").out.strip()
 
 
+def worktrees(repo: Path) -> list:
+    """`git worktree list --porcelain` を list[dict(path, head, branch)] にする。"""
+    r = _git(repo, "worktree", "list", "--porcelain")
+    if r.code != 0:
+        return []
+    out, cur = [], {}
+    for line in r.out.splitlines():
+        if not line.strip():
+            if cur:
+                out.append(cur)
+            cur = {}
+            continue
+        k, _, v = line.partition(" ")
+        if k == "worktree":
+            cur["path"] = Path(v)
+        elif k == "HEAD":
+            cur["head"] = v
+        elif k == "branch":
+            cur["branch"] = v[len("refs/heads/"):]
+    if cur:
+        out.append(cur)
+    return out
+
+
 def log(wt: Path, n: int = 20, fmt: str = "%h %ad %s", extra: str = "") -> str:
     args = ["log", "--pretty=format:" + fmt, "-n", str(n)]
     if extra:
