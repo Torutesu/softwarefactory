@@ -6,6 +6,7 @@
   signals     -- 取り込んだシグナル一覧
   seed add    -- Seed を追加
   ingest      -- 素材/URL を Seed 化 (+ --run でミッション作成~実行まで一括)
+  collect     -- 定時シグナル収集 (cron で巡回 → ドラフト化 → 人間が promote)
   listen      -- Webhook リスナー (POST /signals → Seed 化 / ミッション自動化)
   mission new -- ミッションを作成 / list -- 一覧
   run         -- ミッションを自律ループで回す
@@ -463,6 +464,61 @@ def cmd_ingest(args) -> None:
         print(f"status: {m2.status}")
 
 
+def cmd_collect(args) -> None:
+    cfg, f = _require_cfg()
+    from . import collect as collect_mod
+
+    if args.list:
+        srcs = collect_mod.sources_of(cfg)
+        print(f"sources: {len(srcs)} (config: collect.sources)")
+        for s in srcs:
+            target = s.get("url") or s.get("path") or s.get("cmd") or ""
+            every = f", every {s.get('every_minutes')}min" if s.get("every_minutes") else ""
+            print(f"  - {s.get('name')} [{s.get('type')}] {target[:70]}{every}")
+        rows = collect_mod.list_drafts(f)
+        print(f"\ndrafts: {len(rows)}")
+        for r in rows:
+            print(f"  {r['id']}  [{r['status']:>8}] {r['source']:<12} {r['title']}"
+                  + (f" -> seeds/{r['seed']}" if r["seed"] else ""))
+        return
+
+    if args.promote:
+        sd = collect_mod.promote(f, args.promote, seed_name=args.name, title=args.title)
+        print(f"seed promoted: {sd}")
+        if args.project or args.repo:
+            repo = _resolve_repo(cfg, args.project, args.repo)
+            m = f.create_mission(
+                title=args.title or sd.name, kind=args.kind, seed=sd.name, repo=repo,
+                risk=args.risk, priority=args.priority,
+                notes="collect promote",
+            )
+            print(f"mission created: {m.id} ({m.status})")
+            if args.run:
+                _resolve_worker_override(cfg, args.worker)
+                m2 = run_mission(f, m.id, confirm=args.confirm, iterations=args.iterations, cfg=cfg)
+                print(f"status: {m2.status}")
+        else:
+            print("→ seed.md の「目的」「受け入れ基準」を人間が確定させてください")
+        return
+
+    if args.dismiss:
+        collect_mod.dismiss(f, args.dismiss)
+        print(f"dismissed: {args.dismiss}")
+        return
+
+    res = collect_mod.run_collect(f, cfg, source=args.source, dry_run=args.dry_run)
+    print(f"collect {'(dry-run)' if res['dry_run'] else ''} — 新規ドラフト {res['created']} 件")
+    for r in res["rows"]:
+        print(f"  - {r['source']} [{r['type']}] {r['status']}  new={r['new']} dup={r['dup']}"
+              + (f"  ({r['note']})" if r.get("note") else ""))
+    new_rows = [r for r in collect_mod.list_drafts(f) if r["status"] == "new"]
+    if new_rows and not res["dry_run"]:
+        print(f"\n未処理ドラフト {len(new_rows)} 件 → 人間が確認して:")
+        for r in new_rows[:8]:
+            print(f"  {r['id']}  {r['source']:<12} {r['title']}")
+        print("  promote: factory collect --promote <id> [--project X --run] / 却下: --dismiss <id>")
+
+
 def cmd_listen(args) -> None:
     cfg, f = _require_cfg()
     from .listener import serve
@@ -596,6 +652,28 @@ def build_parser() -> argparse.ArgumentParser:
                     help="署名/Bearer 検証の共有シークレット (既定: env FACTORY_LISTEN_SECRET)。"
                          "ループバック以外で待ち受けるときは必須")
     sp.set_defaults(fn=cmd_listen)
+
+    sp = sub.add_parser("collect", help="定時シグナル収集 → ドラフト化 (cron 向け)")
+    sp.add_argument("--source", default="", help="このソースだけ収集する")
+    sp.add_argument("--dry-run", action="store_true", help="ドラフトを作らず取得結果だけ確認")
+    sp.add_argument("--list", action="store_true", help="収集せずソースとドラフトの一覧を表示")
+    sp.add_argument("--promote", default="", metavar="DRAFT_ID", help="ドラフトを Seed 化する")
+    sp.add_argument("--dismiss", default="", metavar="DRAFT_ID", help="ドラフトを却下する")
+    sp.add_argument("--name", default="", help="promote 時の seed 名")
+    sp.add_argument("--title", default="")
+    sp.add_argument("--project", default="")
+    sp.add_argument("--repo", default="")
+    sp.add_argument("--kind", default="update", help="promote 時の mission kind")
+    sp.add_argument("--risk", default="low")
+    sp.add_argument("--priority", type=int, default=5)
+    sp.add_argument("--iterations", type=int, default=3)
+    sp.add_argument("--pass-score", type=int, default=80)
+    sp.add_argument("--model", default="")
+    sp.add_argument("--notes", default="")
+    sp.add_argument("--worker", default="")
+    sp.add_argument("--confirm", action="store_true")
+    sp.add_argument("--run", action="store_true", help="promote+--project 時にミッション実行まで")
+    sp.set_defaults(fn=cmd_collect)
 
     sp = sub.add_parser("holdout", help="holdout シナリオの list / regen")
     sp.add_argument("action", choices=["list", "regen"])

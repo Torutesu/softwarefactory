@@ -83,9 +83,12 @@ CLI 実装差異:
 仕事が流れ続けるか)、**出口の自律性** (実装だけでなく出荷・失敗回収まで終わるか)、
 **逆振れしないこと** (失敗への自動対応が失敗を増幅しないこと)。
 
-- **1 巡 = tick**: 取込 (intake) → 実行 (execute) → 出荷 (deliver: merge + canary +
-  repair) の 3 段。各段は独立していて、相互の失敗でクロックが止まらない
-  (`supervise` は tick ごとに例外を握って継続する)。
+- **1 巡 = tick**: 収集 (collect: 外部シグナルのドラフト化, `collect.sources` 設定時) →
+  取込 (intake) → 実行 (execute) → 出荷 (deliver: merge + canary + repair) の各段。
+  各段は独立していて、相互の失敗でクロックが止まらない
+  (`supervise` は tick ごとに例外を握って継続する)。collect → Seed は人間ゲート:
+  クロックはドラフトを作るだけで、人間が `--promote` して seed.md を確定したものだけが
+  次の intake で仕事になる (クロック単独で仕事が無限に生まれないという明確な境界)。
 - **継続性**: intake は `seeds/` に置かれた未割当 Seed を常に拾う (level>=3)。
   execute は queued を並列 (`tick_concurrency`)・優先度で処理する。予算は
   「全ワーカーが日次/窓上限を超えたときのみ」実行を差し控える (一部超過なら

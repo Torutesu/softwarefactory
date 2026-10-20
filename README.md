@@ -173,12 +173,19 @@ AI コーディングのコストは「どこにトークンが向かったか�
 
 ## 自律運転 (ファクトリークロック)
 
-1 回の `tick` が「取込 → 実行 → 出荷 → カナリア → 修復」を一巡します。
+1 回の `tick` が「収集 → 取込 → 実行 → 出荷 → カナリア → 修復」を一巡します
+(収集は `collect.sources` を設定したときだけ動く)。外の素材 (記事/エラートラッカー/
+コマンド出力) を cron で巡回してドラフト化し、人間が seed.md を確定したものだけが
+仕事になる — 巡回は自動、仕事化は人間ゲートです:
 
 ```bash
-factory tick --dry-run              # 計画だけ見る
-factory tick                        # 1 巡だけ (cron 併用可)
-factory supervisor --interval 300   # 常駐で tick を回し続ける
+factory collect                       # ソースを巡回 → .factory/drafts/ にドラフト化
+factory collect --list                # ドラフト一覧
+factory collect --promote D... --project X --run   # 確定して Seed 化 → 実行まで
+factory collect --dismiss D...        # 却下
+factory tick --dry-run                # 計画だけ見る
+factory tick                          # 1 巡だけ (cron 併用可)
+factory supervisor --interval 300     # 常駐で tick を回し続ける
 ```
 
 `autonomy_level` で自律度を段階的に上げられる (既定 1 = 実行と報告のみ):
@@ -237,6 +244,7 @@ factory pr <id>              # origin + gh があれば PR 作成、無ければ
 | `worker ping` | claude / opencode / mock の疎通確認 |
 | `seed add <src> [--name]` | Seed (材料一式) を追加 |
 | `ingest <src\|url> [--project] [--run]` | Seed 化 (+ ミッション作成~実行まで一括) |
+| `collect [--source] [--dry-run] [--list]` | 定時シグナル収集 → ドラフト化 (人間が `--promote` / `--dismiss`) |
 | `listen [--port] [--auto-create]` | Webhook リスナー起動 |
 | `mission new <title> --project NAME \|--repo PATH [--seed S] [--kind] [--model M]` | ミッション作成 |
 | `run <id> [--worker W] [--confirm] [--iterations N]` | 自律ループ実行 |

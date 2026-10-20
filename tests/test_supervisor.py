@@ -96,6 +96,23 @@ class TestTick(unittest.TestCase):
         kinds = [e["kind"] for e in f.state().get("events")]
         self.assertIn("tick", kinds)
 
+    def test_tick_collects_when_configured(self):
+        """collect.sources 設定時は tick が収集してドラフト化する (promote は人間)。"""
+        from factory import collect as collect_mod
+
+        collect_mod._http_get = lambda url, timeout=30: (
+            "text/html", b"<html><title>t</title><body>signal body</body></html>")
+        cfg, f = _demo(self.tmp, autonomy=4)
+        cfg.collect = {"sources": [{"name": "blog", "type": "url", "url": "https://example.com/x"}]}
+        out = tick(f, cfg)
+        self.assertEqual(out["collect"]["created"], 1)
+        self.assertEqual(len(collect_mod.list_drafts(f)), 1)
+        out2 = tick(f, cfg)
+        self.assertEqual(out2["collect"]["created"], 0)  # 同じ本文は dup
+        # 未設定なら skipped
+        cfg2, f2 = _demo(self.tmp, autonomy=4)
+        self.assertIn("skipped", tick(f2, cfg2)["collect"])
+
 
 class TestRepairDepth(unittest.TestCase):
     def setUp(self):

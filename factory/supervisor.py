@@ -288,8 +288,22 @@ def _repair_depth(factory: Factory, m) -> int:
 
 
 # ---------------------------------------------------------------------------
+def step_collect(factory: Factory, cfg: Config, dry_run: bool) -> dict:
+    """定時シグナル収集 (cron 兼用)。ドラフト化まで — promote は人間ゲートのまま。"""
+    if not ((getattr(cfg, "collect", {}) or {}).get("sources")):
+        return {"skipped": "collect.sources 未設定"}
+    from . import collect as collect_mod
+
+    res = collect_mod.run_collect(factory, cfg, dry_run=dry_run)
+    return {"created": res.get("created", 0),
+            "sources": len(res.get("rows") or []),
+            "rows": [{"source": r.get("source"), "status": r.get("status"),
+                      "new": r.get("new", 0), "dup": r.get("dup", 0)} for r in res.get("rows") or []]}
+
+
 def tick(factory: Factory, cfg: Config, dry_run: bool = False) -> dict:
     out = {"ts": dt.datetime.now().isoformat(timespec="seconds")}
+    out["collect"] = step_collect(factory, cfg, dry_run)
     out["intake"] = step_intake(factory, cfg, dry_run)
     out["execute"] = step_execute(factory, cfg, dry_run)
     out["deliver"] = step_deliver(factory, cfg, dry_run)

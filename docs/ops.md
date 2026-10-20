@@ -194,12 +194,46 @@ bin/factory bench --history             # 保存済み結果 (.factory/bench/res
 
 ## 自律運転: tick (ファクトリークロック) と supervisor
 
-1 回の tick は「取込 → 実行 → 出荷 → カナリア → 修復」の一巡:
+1 回の tick は「収集 → 取込 → 実行 → 出荷 → カナリア → 修復」の一巡
+(`collect.sources` 未設定なら収集ステップは skipped):
 
 ```bash
 bin/factory tick --dry-run            # 計画だけ表示 (state 変化なし)
 bin/factory tick                      # 1 巡だけ回す (cron に登録する形)
 bin/factory supervisor --interval 300 # 常駐で tick を回し続ける
+```
+
+### 定時シグナル収集 (collect)
+
+外の素材 (記事・SNS・エラートラッカー・社内エクスポート) を
+cron で巡回して**ドラフト化**する。Seed 化は人間ゲートのまま:
+
+```json
+"collect": {
+  "sources": [
+    {"name": "err-tracker", "type": "url", "url": "https://errors.internal/top.json", "every_minutes": 60},
+    {"name": "exports",     "type": "dir", "path": "/Users/tt/inbox", "every_minutes": 30},
+    {"name": "probe",       "type": "command", "cmd": "curl -s -H 'Authorization: Bearer …' https://sns.internal/mentions.json", "every_minutes": 15}
+  ]
+}
+```
+
+- **書き方**: `type` は `url` (HTML→テキスト抽出, `page.html` 同梱) / `file` / `dir`
+  (新着ファイル 1 つ = 1 ドラフト) / `command` (stdout を採る。任意コマンドを
+  登録できるので、API トークン付きの curl や自前スクリプトでどのシステムにも接続できる)。
+- 巡回の頻度: 1 ソースに `every_minutes` を付けると、前回実行から指定分経過するまで
+  スキップする。cron を 5 分間隔に 1 回 `factory collect` しても各ソースは自分の間隔で動く。
+- **重複なし**: 本文は sha256 で管理し、既に見た本文はドラフト化しない
+  (記事が更新されればハッシュが変わり新ドラフトになる)。
+- **人間ゲート**: 収集しただけでは仕事にならない。ドラフト `.factory/drafts/<id>/`
+  の `signal.md` に目的と受け入れ基準を書いてから
+  `factory collect --promote <id> [--project X [--run]]` で Seed 化 (却下は `--dismiss`)。
+
+cron だけで回す例 (supervisor を併用しない場合):
+
+```cron
+*/5 * * * *  cd /path/to/factory && bin/factory collect >> logs/collect.log 2>&1
+*/5 * * * *  cd /path/to/factory && bin/factory tick   >> logs/tick.log 2>&1
 ```
 
 自律度は `config.autonomy_level` (1..4) で段階導入:

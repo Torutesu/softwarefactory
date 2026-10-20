@@ -6,7 +6,9 @@
 
 - [x] **シグナル → ミッションの自動化**: `factory ingest <src|url> --project X --run` で Seed 化 → mission 作成 → 実行まで一括
 - [x] **本番シグナル取り込み**: `factory listen --port N --auto-create` で webhook (POST /signals) → seeds/ 自動 Seed 化 (+ `--auto-run` で実行まで)
-- [ ] **SNS 反応の取り込み**: `factory ingest <url>` 汎用取込は済み。検索結果の定期収集とドラフト生成 (人間が seed.md 確定) は今後
+- [x] **SNS 反応の取り込み**: `factory ingest <url>` 汎用取込 + `factory collect`
+  (定時巡回: url/file/dir/command ソースを sha256 重複チェックでドラフト化 →
+  人間が seed.md を確定して `--promote [--project --run]`。tick の収集ステップにも組込)
 - [x] **シグナル一覧**: `factory signals`
 
 ## 検証の拡強

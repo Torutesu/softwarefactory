@@ -112,6 +112,7 @@ class Config:
     noprogress_iterations: int = 2  # 連続でこの回数、実差分ゼロの反復が続いたら打ち切り (0 で無効)
     require_reviewable: bool = True  # build.json の test もホールドアウトも無いミッションは dev に入らない
     judge_on_harness_fail: bool = False  # harness 失敗時も judge を呼ぶか (既定: 呼ばずに枠を節約)
+    collect: Dict[str, object] = field(default_factory=dict)  # 定時収集設定 (sources 等の素通し dict)
     projects: Dict[str, ProjectConfig] = field(default_factory=dict)
     workers: Dict[str, WorkerConfig] = field(default_factory=dict)
 
@@ -146,6 +147,7 @@ class Config:
             "noprogress_iterations": self.noprogress_iterations,
             "require_reviewable": self.require_reviewable,
             "judge_on_harness_fail": self.judge_on_harness_fail,
+            "collect": dict(self.collect),
             "root": self.root,
             "projects": {k: vars(v) for k, v in self.projects.items()},
             "workers": {k: vars(v) for k, v in self.workers.items()},
@@ -200,6 +202,7 @@ class Config:
             noprogress_iterations=int(data.get("noprogress_iterations", 2)),
             require_reviewable=bool(data.get("require_reviewable", True)),
             judge_on_harness_fail=bool(data.get("judge_on_harness_fail", False)),
+            collect=dict(data.get("collect") or {}),
             projects=projects,
             workers=workers,
         )
