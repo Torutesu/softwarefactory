@@ -40,7 +40,8 @@
 - **UI 撮影の自動化**: Playwright/AppleScript によるスクショ取得ステップ (現在はアプリ自身が PNG を出力する前提)
 - **定時シグナル収集**: cron で検索/SNS/エラートラッカーを巡回して Seed ドラフト化
 - **OpenRouter のコスト予測**: 既定 auth は api_key。実際の usage.cost の有無に応じた予測表示
-- **ダッシュボード強化**: usage 窓 / canary / needs_human を `status --watch` に表示
+- **ダッシュボード強化**: usage 窓 / canary / needs_human を `status --watch` に表示 → [x]
+  (`_print_dashboard`: workers の usage 窓実測 / review 待ちのティア別カウント / canary 直近 / needs_human 滞留 / collect ドラフト数。普通の `status` には滞留時のみ 1 行サマリ)
 - **複数リポジトリ横断の依存解消**: ミッション間の順序制約 (DAG)
 
 ## 外部記事から得た観点 (2026-10: Firecrawl「How to Build an AI Software Factory」)
@@ -53,7 +54,8 @@
   (spec/holdout セッションのみ許可する等) で開けるか検討
 - **レビュー容量のメトリクス**: ボトルネックはレビュー容量 (記事: dotnet/runtime では上位 2 名の
   レビュアーで agent PR への指摘の 36%)。`usage --waste` の反復平均・失敗・上限ギリギリ集計は
-  実装済み。次は `status --watch` にレビュー待ちティア数と `needs_human` 滞留を出す
+  実装済み。`status --watch` にレビュー待ちティア数と `needs_human` 滞留を出すのは [x]
+  (ダッシュボードパネル)。次はティアごとの滞留時間の計測に進む
 - **エージェント間レビュー** (将来): behavioral ティアの中間レビューを別セッションの
   ワーカー (実装者と共犯でない) に任せる、現行 judge の拡張。指摘は「差分への指摘」
   「シナリオが見落とした観点」で価値を測り、confidence スコアによるフィルタは使わない

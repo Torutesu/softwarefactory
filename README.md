@@ -239,7 +239,7 @@ factory pr <id>              # origin + gh があれば PR 作成、無ければ
 | コマンド | 説明 |
 |---|---|
 | `init <root> [--demo]` | ファクトリの初期化 |
-| `status [--watch [秒]]` | ミッション一覧 / ダッシュボード |
+| `status [--watch [秒]]` | ミッション一覧 / ダッシュボード (--watch: usage 窓・review 待ちティア・canary・needs_human・ドラフト) |
 | `signals` | 取り込んだシグナルの一覧 |
 | `worker ping` | claude / opencode / mock の疎通確認 |
 | `seed add <src> [--name]` | Seed (材料一式) を追加 |

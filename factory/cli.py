@@ -72,6 +72,7 @@ def cmd_status(args) -> None:
             print("factory dashboard (Ctrl-C で終了)  " + time.strftime("%Y-%m-%d %H:%M:%S"))
             print()
             _print_status(f, show_bench=show_bench)
+            _print_dashboard(f, cfg)
             time.sleep(watch)
     else:
         _print_status(f, show_bench=show_bench)
@@ -403,6 +404,90 @@ def _print_status(f: Factory, show_bench: bool = False) -> None:
     elif bench_ms:
         print(f"(注: bench ミッション {len(bench_ms)} 件を省略 — `factory bench --history` / "
               "`factory report <id>` で確認、--all で表示)")
+    # 目刻りの一行サマリ (--watch では詳細パネルに続く)
+    pending = [m for m in ms if m.status == "done" and "merged to main" not in (m.notes or "")]
+    nh = _needs_human_backlog(f)
+    if pending or nh:
+        print(f"(review 待ち {len(pending)} / needs_human {len(nh)} 詳細: status --watch)")
+
+
+def _needs_human_backlog(f: Factory) -> list:
+    """最新 tick イベントに積まれた needs_human の滞留リスト。"""
+    import json as _json
+
+    for e in reversed(f.state().get("events") or []):
+        if e.get("kind") == "tick":
+            try:
+                return (_json.loads(e.get("detail") or "{}").get("needs_human") or [])
+            except _json.JSONDecodeError:
+                return []
+    return []
+
+
+def _print_dashboard(f: Factory, cfg: Config) -> None:
+    """status --watch 用の詳細パネル: usage 窓 / review 待ちティア / canary / needs_human / drafts。
+
+    すべて実測 (events, usage, git) を見る自己申告なしの表示。git の分類に失敗した
+    ミッションは unknown ティア (fail-safe で人間に寄る) で数える。
+    """
+    from .usage import Usage
+
+    print("\n── workers (usage) ──")
+    u = Usage(cfg.state_dir)
+    today = u.today()
+    for name in cfg.worker_order:
+        wc = cfg.workers.get(name) or WorkerConfig(type=name)
+        fails = ((today.get("workers") or {}).get(name) or {}).get("fails", 0)
+        line = f"  {name:<14} {u.budget_status(name, wc)}"
+        if fails:
+            line += f"  fail今日={fails}"
+        print(line)
+
+    print("\n── review 待ち (done 未マージ) ──")
+    from . import mergegate
+
+    pend = [m for m in f.list_missions()
+            if m.kind != "bench" and m.status == "done"
+            and "merged to main" not in (m.notes or "")]
+    if not pend:
+        print("  なし")
+    tiers: dict = {}
+    for m in pend:
+        repo = Path(m.repo) if Path(m.repo).is_absolute() else f.root / m.repo
+        t = mergegate.classify(cfg, repo, f"factory/{m.id}", m).get("tier", "unknown")
+        tiers.setdefault(t, []).append(m.id)
+    for t in ("sensitive", "behavioral", "unknown", "scoped", "mechanical"):
+        if t in tiers:
+            ids = tiers[t]
+            print(f"  [{t:<10}] {len(ids)}  {', '.join(ids[:4])}" + (" …" if len(ids) > 4 else ""))
+
+    print("\n── canary ──")
+    last = next((e for e in reversed(f.state().get("events") or [])
+                 if e.get("kind") in ("canary_pass", "canary_fail")), None)
+    if not last:
+        print("  実績なし")
+    else:
+        print(f"  last: {last['kind']} {str(last.get('ts', ''))[:16]} ({str(last.get('detail'))[:40]})")
+
+    print("\n── needs_human 滞留 ──")
+    nh = _needs_human_backlog(f)
+    if not nh:
+        print("  なし")
+    else:
+        for x in nh[:5]:
+            print(f"  - {str(x)[:110]}")
+        if len(nh) > 5:
+            print(f"  … 他 {len(nh) - 5} 件")
+
+    print("\n── collect 未処理ドラフト ──")
+    try:
+        from .collect import list_drafts
+
+        rows = [r for r in list_drafts(f) if r["status"] == "new"]
+        print(f"  {len(rows)} 件" + ("" if not rows else
+              f"  (最新: {rows[0]['id']} {rows[0]['title'][:40]})"))
+    except Exception:  # noqa — ダッシュボードは収集未設定でも壊れない
+        print("  -")
 
 
 def cmd_signals(args) -> None:
