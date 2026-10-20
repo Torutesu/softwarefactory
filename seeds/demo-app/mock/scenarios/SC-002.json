@@ -1,0 +1,12 @@
+{
+  "id": "SC-002",
+  "title": "メモ作成とバリデーション (201 / 空・101字・非文字列は400)",
+  "weight": 1.5,
+  "notes": "デモ用ホールドアウト (Seed に同梱された答えキー)。",
+  "steps": [
+    {"name": "create-ok", "cmd": "python3 \"$FACTORY_HOLDOUT_DIR/sc002_create.py\" ok", "expect_exit": 0},
+    {"name": "bad-empty", "cmd": "python3 \"$FACTORY_HOLDOUT_DIR/sc002_create.py\" bad-empty", "expect_exit": 0},
+    {"name": "bad-long", "cmd": "python3 \"$FACTORY_HOLDOUT_DIR/sc002_create.py\" bad-long", "expect_exit": 0},
+    {"name": "bad-type", "cmd": "python3 \"$FACTORY_HOLDOUT_DIR/sc002_create.py\" bad-type", "expect_exit": 0}
+  ]
+}

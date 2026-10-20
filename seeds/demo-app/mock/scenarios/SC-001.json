@@ -1,0 +1,9 @@
+{
+  "id": "SC-001",
+  "title": "既存機能が退行しない (health / 一覧 / 不明IDは404)",
+  "weight": 1.0,
+  "notes": "デモ用ホールドアウト (Seed に同梱された答えキー)。実運用では別セッションの Worker が生成する。",
+  "steps": [
+    {"name": "existing", "cmd": "python3 \"$FACTORY_HOLDOUT_DIR/sc001_existing.py\"", "expect_exit": 0}
+  ]
+}

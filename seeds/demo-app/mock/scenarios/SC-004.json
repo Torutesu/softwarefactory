@@ -1,0 +1,9 @@
+{
+  "id": "SC-004",
+  "title": "連続作成で連番IDが採番される",
+  "weight": 1.0,
+  "notes": "デモ用ホールドアウト (Seed に同梱された答えキー)。",
+  "steps": [
+    {"name": "ids", "cmd": "python3 \"$FACTORY_HOLDOUT_DIR/sc004_ids.py\"", "expect_exit": 0}
+  ]
+}

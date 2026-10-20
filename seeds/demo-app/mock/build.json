@@ -1,0 +1,9 @@
+{
+  "build": null,
+  "test": "python3 -m unittest discover -s tests -p 'test_*.py' -t .",
+  "run": "python3 app.py",
+  "health_url": "http://127.0.0.1:${FACTORY_PORT}/health",
+  "project_subdir": null,
+  "wait_s": 60,
+  "step_timeout_s": 300
+}

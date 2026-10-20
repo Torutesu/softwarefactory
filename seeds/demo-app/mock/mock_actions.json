@@ -1,0 +1,20 @@
+{
+  "actions": [
+    {
+      "action": "patch",
+      "file": "app.py",
+      "find": "def create_note(title, body):\n    \"\"\"TODO: ミッションで実装する (バリデーション + 登録)。\"\"\"\n    raise NotImplementedError(\"not implemented\")",
+      "replace": "def create_note(title, body):\n    if not isinstance(title, str) or not title.strip() or len(title) > 100:\n        raise ValueError(\"title must be a non-empty string of 100 chars or less\")\n    note = {\"id\": _NEXT_ID[0], \"title\": title, \"body\": body if isinstance(body, str) else \"\"}\n    _NEXT_ID[0] += 1\n    NOTES[note[\"id\"]] = note\n    return note"
+    },
+    {
+      "action": "patch",
+      "file": "app.py",
+      "find": "def delete_note(note_id: int) -> bool:\n    \"\"\"TODO: ミッションで実装する (削除)。\"\"\"\n    return False",
+      "replace": "def delete_note(note_id: int) -> bool:\n    if note_id in NOTES:\n        del NOTES[note_id]\n        return True\n    return False"
+    },
+    {
+      "action": "shell",
+      "cmd": "python3 -m unittest discover -s tests -p 'test_*.py' -t ."
+    }
+  ]
+}
