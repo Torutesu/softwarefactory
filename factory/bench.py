@@ -18,17 +18,16 @@ from __future__ import annotations
 
 import datetime as dt
 import json
-import time
 from pathlib import Path
 from typing import List, Optional, Tuple
 
 from .config import Config
 from .harness.judge import parse_judge_json
 from .loop import run_mission
-from .spec_generator import SPEC_TEMPLATE, spec_prompt
-from .state import Factory, Iteration, Mission, mission_cost_usd
+from .spec_generator import spec_prompt
+from .state import Factory, Mission, mission_cost_usd
 from .usage import Usage
-from .util import load_json, load_text, now_utc_iso, save_json, save_text
+from .util import load_json, now_utc_iso, save_json, save_text
 from .workers.base import AllWorkersFailed
 from .workers.router import Router
 
@@ -67,7 +66,7 @@ def load_tasks(factory: Factory, ids: Optional[List[str]] = None,
         try:
             data = json.loads(p.read_text(encoding="utf-8"))
         except json.JSONDecodeError as e:
-            raise BenchError(f"bench タスク {p.name}: JSON不正 ({e})")
+            raise BenchError(f"bench タスク {p.name}: JSON不正 ({e})") from e
         data.setdefault("id", p.stem)
         tasks.append(data)
     if ids is not None:
@@ -172,8 +171,8 @@ def _pinned_cfg(cfg: Config, name: str, model: str = "",
         for wc in p.workers.values():
             wc.model = model
     if lock_purpose == "dev":
-        setattr(p, "bench_lock_dev", True)
-    setattr(p, "bench_lock_purpose", lock_purpose)
+        p.bench_lock_dev = True
+    p.bench_lock_purpose = lock_purpose
     return p
 
 

@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import re
 from collections import Counter
-from typing import List, Optional
+from typing import Optional
 
 from . import gitx
 from .config import Config

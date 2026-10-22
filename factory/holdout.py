@@ -211,7 +211,7 @@ def generate(factory: Factory, m: Mission, router: Router) -> bool:
 
     prompt = holdout_prompt(factory, m, spec_text)
     errors = ["scenario files not created"]
-    for attempt in range(2):
+    for _attempt in range(2):
         try:
             _, res = router.run("holdout", factory.mission_dir(m.id), prompt)
         except Exception:

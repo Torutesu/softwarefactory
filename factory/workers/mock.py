@@ -12,7 +12,7 @@ import time
 from pathlib import Path
 from typing import Optional
 
-from ..util import run_shell
+from ..util import ProcResult, run_shell
 from .base import Worker, WorkerResult
 
 MOCK_BLOCK = re.compile(r"```mock-action\s*\n(.*?)\n```", re.S)

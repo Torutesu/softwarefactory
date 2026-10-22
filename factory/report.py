@@ -6,7 +6,6 @@ from typing import List, Optional
 
 from .harness.runner import HarnessResult
 from .state import Factory, Iteration, Mission, mission_cost_usd
-from .util import save_text
 
 
 def iter_report(

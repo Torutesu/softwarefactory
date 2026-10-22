@@ -7,7 +7,6 @@
 """
 from __future__ import annotations
 
-import json
 import os
 import re
 import signal
@@ -18,7 +17,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Optional
 
-from ..holdout import Scenario, load_scenarios
+from ..holdout import load_scenarios
 from ..state import Factory, Mission
 from ..util import child_env, load_json, run_shell
 

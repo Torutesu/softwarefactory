@@ -47,7 +47,6 @@ class TestUsageWindow(unittest.TestCase):
         self.assertFalse(self.usage.window_budget_exceeded("mock", wc, now=now))
 
     def test_report_has_window(self):
-        wc = WorkerConfig(type="mock", window_call_limit=3, window_minutes=300)
         self.usage.record("mock", 1.0, True, "dev", tokens_in=10, tokens_out=5, cost_usd=0.25)
         rep = self.usage.report(days=1)
         self.assertIn("| mock |", rep)

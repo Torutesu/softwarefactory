@@ -33,7 +33,7 @@ import shutil
 import sys
 from pathlib import Path
 
-from .config import Config, WorkerConfig, save as save_config, DEFAULT_WORKER_ORDER
+from .config import Config, WorkerConfig, DEFAULT_WORKER_ORDER
 from .init_scaffold import init_factory
 from .loop import run_mission
 from .state import Factory
@@ -494,7 +494,6 @@ def cmd_signals(args) -> None:
     cfg, f = _require_cfg()
     st = f.state()
     signals = st.get("signals") or []
-    missions = st.get("missions") or {}
     if not signals:
         print("シグナルなし。`factory listen` で Webhook 受付、`factory ingest` で手動取込。")
         return

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .config import Config, ProjectConfig, save as save_config
+from .config import Config, save as save_config
 from .state import Factory
 
 GITIGNORE = """\

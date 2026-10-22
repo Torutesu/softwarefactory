@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import contextlib
 import io
-import json
 import os
 import shutil
 import sys
@@ -22,7 +21,7 @@ sys.path.insert(0, ROOT)
 
 from factory import gitx
 from factory.cli import cmd_worktrees
-from factory.config import Config, WorkerConfig
+from factory.config import Config
 from factory.init_scaffold import init_factory
 from factory.state import Factory
 

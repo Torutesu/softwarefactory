@@ -169,7 +169,7 @@ class TestCollectRun(_Base):
 
     def test_config_roundtrip_keeps_collect(self):
         cfg = _cfg(self.tmp, [_src(), _src(name="u2", type="url", url="https://x", every_minutes=15)])
-        st = save_json(Path(self.tmp) / "_cfg.json", cfg.to_dict())
+        save_json(Path(self.tmp) / "_cfg.json", cfg.to_dict())
         cfg2 = Config.from_dict(cfg.to_dict())
         self.assertEqual(len(collect_mod.sources_of(cfg2)), 2)
         self.assertEqual(collect_mod.sources_of(cfg2)[1]["every_minutes"], 15)

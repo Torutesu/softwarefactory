@@ -7,7 +7,6 @@
 from __future__ import annotations
 
 import datetime as dt
-import json
 import secrets
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -262,7 +261,7 @@ class FileLock:
         except OSError:
             self.fd.close()
             self.fd = None
-            raise RuntimeError("mission is locked by another process: %s" % self.path)
+            raise RuntimeError("mission is locked by another process: %s" % self.path) from None
         return self
 
     def __exit__(self, *exc):
