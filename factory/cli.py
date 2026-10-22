@@ -81,6 +81,7 @@ def cmd_status(args) -> None:
 def cmd_worker_ping(args) -> None:
     cfg, _ = _require_cfg()
     ok = True
+    usable = 0
     for name in cfg.worker_order:
         wc = cfg.workers.get(name) or WorkerConfig(type=name)
         if wc.type == "mock":
@@ -91,15 +92,15 @@ def cmd_worker_ping(args) -> None:
 
             if os.environ.get("OPENROUTER_API_KEY", "").strip():
                 print(f"[ok] {name}: OPENROUTER_API_KEY 設定済 (model={wc.model or 'openrouter/auto'}, auth=api_key)")
+                usable += 1
             else:
-                print(f"[ng] {name}: OPENROUTER_API_KEY 未設定 (spec/holdout/judge 用途に使用可)")
-                ok = False
+                print(f"[--] {name}: OPENROUTER_API_KEY 未設定 (spec/holdout/judge 用途に使用可)")
             continue
         cmd = wc.resolved_command()
         path = which(cmd)
         if not path:
-            print(f"[ng] {name}: `{cmd}` が見つかりません (auth={wc.auth})")
-            ok = False
+            # 入れていないワーカーは失敗ではない (worker_order の既定には全種類が並ぶ)
+            print(f"[--] {name}: `{cmd}` が見つかりません (未導入なら worker_order から外せます)")
             continue
         r = run_cmd([path, "--version"], timeout=30)
         ver = (r.out or r.err).strip().splitlines()[:1]
@@ -108,6 +109,11 @@ def cmd_worker_ping(args) -> None:
             ok = False
             continue
         print(f"[ok] {name}: `{cmd}` {ver[0] if ver else ''} (auth={wc.auth})")
+        usable += 1
+    if usable == 0 and not any((cfg.workers.get(n) or WorkerConfig(type=n)).type == "mock"
+                               and cfg.use_worker == n for n in cfg.worker_order):
+        print("[ng] 使える実ワーカーがありません")
+        ok = False
     if not ok:
         print("→ 未インストール/未設定の worker があります (.factory/config.json の worker_order を確認)。", file=sys.stderr)
         sys.exit(1)
@@ -272,7 +278,9 @@ def cmd_run(args) -> None:
     cfg, f = _require_cfg()
     _resolve_worker_override(cfg, args.worker)
     m = run_mission(f, args.mission, confirm=args.confirm, iterations=args.iterations, cfg=cfg)
-    print(f"status: {m.status}")
+    print(f"status: {m.status}" + (f" ({m.halt_reason})" if m.halt_reason else ""))
+    if m.halt_reason == "crash":
+        sys.exit(1)  # 例外で中断 (reports/crash.txt)。スクリプトから検知できるように
 
 
 def cmd_run_all(args) -> None:
@@ -685,6 +693,22 @@ def cmd_holdout(args) -> None:
     if not m:
         raise SystemExit(f"mission not found: {args.mission}")
     hdir = f.holdout_dir_for(m.id)
+    if args.action == "rerecord":
+        # 人間がシナリオを手で直したあと「今の内容を正とする」(regen は手直しを捨ててしまう)
+        from .holdout import record_manifest, unseal_if_stale, verify_scenarios
+
+        unseal_if_stale(f, m.id)
+        errs = verify_scenarios(f, m.id)
+        if errs:
+            raise SystemExit("シナリオが不正です: " + "; ".join(errs[:3]))
+        try:
+            with f.lock(m.id):
+                fp = record_manifest(f, m.id)
+        except RuntimeError:
+            raise SystemExit(f"{m.id} は実行中です") from None
+        f.event("holdout_rerecorded", m.id)
+        print(f"[holdout] 指紋を記録し直しました: {fp[:12] if fp else '-'}")
+        return
     if args.action == "list":
         files = scenario_files(f, m.id)
         print(f"holdout: {hdir}")
@@ -697,9 +721,10 @@ def cmd_holdout(args) -> None:
     # regen: 既存シナリオを掃除して再生成 (陳腐化した仕様のリフレッシュ)
     if m.status == "done" and not args.force:
         raise SystemExit("done ミッションのシナリオ再生成は --force を付けてください")
-    from .holdout import unseal_if_stale
+    from .holdout import manifest_path, unseal_if_stale
 
     unseal_if_stale(f, m.id)
+    manifest_path(f, m.id).unlink(missing_ok=True)  # 生成に成功したら新しい指紋を記録し直す
     removed = 0
     if hdir.exists():
         for p in sorted(hdir.iterdir()):
@@ -861,7 +886,7 @@ def build_parser() -> argparse.ArgumentParser:
     sp.set_defaults(fn=cmd_collect)
 
     sp = sub.add_parser("holdout", help="holdout シナリオの list / regen")
-    sp.add_argument("action", choices=["list", "regen"])
+    sp.add_argument("action", choices=["list", "regen", "rerecord"])
     sp.add_argument("mission")
     sp.add_argument("--force", action="store_true", help="done ミッションの regen を許可")
     sp.set_defaults(fn=cmd_holdout)

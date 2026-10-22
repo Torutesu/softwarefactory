@@ -144,6 +144,9 @@ def run_mission(factory: Factory, mid: str, confirm: bool = False, iterations: O
                 return _mark_crashed(factory, mid, "shutdown", "supervisor shutdown", status="queued")
             return m2
         except Exception as e:
+            if SHUTDOWN.is_set():
+                # 停止要求で子プロセスが止められた結果の例外はミッションの失敗ではない
+                return _mark_crashed(factory, mid, "shutdown", "supervisor shutdown", status="queued")
             # 途中の例外で status が spec/holdout/dev のまま放置されないようにする
             return _mark_crashed(factory, mid, "crash", f"{type(e).__name__}: {e}")
         except BaseException:

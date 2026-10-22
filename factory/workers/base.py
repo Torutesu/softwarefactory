@@ -34,7 +34,9 @@ AUTH_SCRUB_KEYS = (
 # auth="api_key" のときに各 CLI が使う鍵。subscription の headless ログイン用トークン
 # (Mac mini で Keychain を使わない運用) は auth に関係なく残す
 API_KEY_ENV_BY_TYPE = {
-    "claude": ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"),
+    # Bedrock / Vertex 経由の Claude Code (CLAUDE_CODE_USE_BEDROCK / _VERTEX) も api_key 扱い
+    "claude": ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY",
+               "AWS_SESSION_TOKEN", "AWS_BEARER_TOKEN_BEDROCK", "GOOGLE_APPLICATION_CREDENTIALS"),
     "codex": ("OPENAI_API_KEY",),
     "opencode": ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "OPENROUTER_API_KEY"),
     "openrouter": ("OPENROUTER_API_KEY",),

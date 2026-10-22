@@ -108,3 +108,22 @@ macOS sandbox。
 4. CLI スモーク: すべてのサブコマンドを demo ファクトリで実行し、トレースバックが出ないこと
 5. PR → レビュー → main へ squash merge (= 本番反映)。Mac mini 側は `git pull` 後に
    `factory doctor` → `deploy/macmini/install.sh` を再実行
+
+## 6. 互換性・移行メモ (本番反映時に確認)
+
+挙動が変わる点。既存の運用スクリプトや設定に当てはまるものがあれば合わせて直す。
+
+| 変更 | 影響 | 対応 |
+|---|---|---|
+| ワーカー CLI / harness に秘密っぽい環境変数を渡さない | build/test が `NPM_TOKEN`・`DATABASE_URL` 等を必要とする製品、Bedrock/Vertex 以外の独自鍵を使うワーカー | `harness_env_passthrough` / worker の `env_passthrough` に名前を列挙 (claude の api_key 運用では AWS/GCP の認証情報は自動で通す) |
+| 実ワーカー構成では mock にフォールバックしない | 実 CLI が全滅したとき「何もしない成功」ではなく tick が `no_worker_available` をエスカレート | 意図的に使うなら `allow_mock_fallback: true` |
+| config の検証 | 型・範囲・参照が不正な config では CLI / supervisor が起動しない (exit 2) | `factory config check` で確認 |
+| `merge` は status=done のみ | 検証未通過の差分を手でマージしていた運用 | `--force` |
+| `init` の再実行は拒否 | 既存ファクトリで `init` を叩くスクリプト | 作り直すなら `--force` |
+| listener: secret 無し運用では `Content-Type: application/json` 必須・Host はループバック名のみ | `curl -d` (form) で送っていた手元スクリプト | `-H 'Content-Type: application/json'`、外部からは secret を設定 |
+| `notify_url` は新規/解消があったときだけ送る | 毎 tick の生存確認として使っていた監視 | payload は `{ts, new, resolved, open, needs_human, summary}`。生存確認は launchd / `doctor` で |
+| `worker ping` は使える実ワーカーが 0 か `--version` 失敗で exit 1 | 未導入の CLI は `[--]` 表示のみ | — |
+| `factory run` は crash で exit 1 | — | `reports/crash.txt` を確認 |
+| `run_cmd` は stdin を閉じ、新しいプロセスグループで起動 | `factory pr` の push で ssh パスフレーズ/認証情報を対話入力していた運用 | ssh-agent / credential helper / `gh auth` を使う (無人運転の前提) |
+| 反復レポートに失敗シナリオの中身を書かない | 調査時は `holdout/<id>/runs/<run>/iter-N.md` を見る | — |
+| holdout の指紋 | シナリオを手で直したら `factory holdout rerecord <id>` (しないと `holdout_tamper` で止まる) | — |

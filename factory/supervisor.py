@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import os
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
@@ -149,8 +150,10 @@ def step_execute(factory: Factory, cfg: Config, dry_run: bool) -> dict:
     usage = Usage(factory.state_dir)
     router = Router(cfg, usage)
     avail = router.available_names()
-    if not avail:
-        return {"ran": [], "escalate": ["no_worker_available"], "nudges": []}
+    # mock は実ワーカー構成では候補から外れるので、「実際に dev/spec を任せられる候補」で判定する
+    if not avail or not router.candidates("dev") or not router.candidates("spec"):
+        return {"ran": [], "escalate": ["no_worker_available: dev/spec を実行できるワーカーがありません "
+                                        "(factory doctor で確認)"], "nudges": []}
     over = [n for n in avail if usage.budget_exceeded(n, cfg.workers.get(n, WorkerConfig()))
             or usage.window_budget_exceeded(n, cfg.workers.get(n, WorkerConfig()))]
     if over and len(over) == len(avail):
@@ -172,6 +175,8 @@ def step_execute(factory: Factory, cfg: Config, dry_run: bool) -> dict:
         return {"ran": [f"(dry) {m.id}" for m in runnable], "escalate": escalations, "nudges": nudges}
 
     def one(m) -> tuple:
+        if loop_mod.SHUTDOWN.is_set():
+            return (m.id, m.status, None, "")  # 停止要求後は新しく始めない
         try:
             m2 = run_mission(factory, m.id, confirm=False, cfg=cfg)
             return (m.id, m2.status, None, m2.halt_reason)
@@ -191,6 +196,8 @@ def step_execute(factory: Factory, cfg: Config, dry_run: bool) -> dict:
                     factory.event("tick_run_error", f"{mid}: {err[:300]}")
     else:
         for m in runnable:
+            if loop_mod.SHUTDOWN.is_set():
+                break
             mid, status, err, halt = one(m)
             ran.append({"mission": mid, "status": status, "error": err, "halt_reason": halt})
             if err:
@@ -257,6 +264,8 @@ def step_deliver(factory: Factory, cfg: Config, dry_run: bool) -> dict:
 
         cr = canary_mod.run_canary(factory, m.id, cfg=cfg)
         canaries.append({"mission": m.id, "status": cr["status"]})
+        if cr["status"] == "escalate":
+            escalations.append(f"{m.id}: カナリア判定不能 ({cr.get('reason')}) — holdout を確認")
         if cr["status"] == "fail":
             if cfg.autonomy_level >= 4:
                 cr2 = canary_mod.run_canary(factory, m.id, cfg=cfg, fix=True,
@@ -357,7 +366,8 @@ def tick(factory: Factory, cfg: Config, dry_run: bool = False) -> dict:
     if pause_file(factory).exists():
         # 緊急停止スイッチ: `touch .factory/PAUSE` で何もしない (消せば次の tick から再開)
         print(f"[tick] {pause_file(factory)} があるため一時停止中 (何もしません)")
-        return {**out, "paused": True}
+        return {**out, "paused": True, "needs_human": [], "budget_nudges": [],
+                "execute": {"skipped": "paused"}, "deliver": {"skipped": "paused"}}
     out["recover"] = step_recover(factory, cfg, dry_run)
     out["collect"] = step_collect(factory, cfg, dry_run)
     out["intake"] = step_intake(factory, cfg, dry_run)
@@ -385,7 +395,8 @@ def tick(factory: Factory, cfg: Config, dry_run: bool = False) -> dict:
     # 通知は「新規」と「解消」があったときだけ (毎 tick 同じ escalate を送ると誰も読まなくなる)
     if getattr(cfg, "notify_url", "") and (changes["new"] or changes["resolved"]):
         _notify(cfg.notify_url, {"ts": out["ts"], "new": changes["new"], "resolved": changes["resolved"],
-                                 "open": len(changes["open"]), "summary": _tick_digest(out)})
+                                 "open": len(changes["open"]), "needs_human": needs_human,
+                                 "summary": _tick_digest(out)})
     return out
 
 
@@ -496,15 +507,20 @@ def supervise(factory: Factory, cfg: Config, interval: int = 300, max_ticks: int
 
     stop = threading.Event()
 
+    from .util import terminate_all_children
+
     def _on_signal(signum, _frame):
+        # ハンドラはメインスレッドの任意の箇所に割り込むので、ここではフラグを立てるだけ
+        # (ロック取得・待機・print はしない)。子プロセスの停止は別スレッドで行う
         if stop.is_set():
             raise KeyboardInterrupt
-        print(f"[supervisor] signal {signum} を受信: 実行中の子プロセスを止めて終了します", flush=True)
         stop.set()
         loop_mod.SHUTDOWN.set()
-        from .util import terminate_all_children
-
-        terminate_all_children()
+        try:
+            os.write(2, f"[supervisor] signal {signum}: 子プロセスを止めて終了します\n".encode())
+        except OSError:
+            pass
+        threading.Thread(target=terminate_all_children, daemon=True).start()
 
     if threading.current_thread() is threading.main_thread():
         signal.signal(signal.SIGTERM, _on_signal)

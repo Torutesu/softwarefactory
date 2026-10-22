@@ -178,7 +178,10 @@ class TestDoctor(unittest.TestCase):  # F4
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     def _by_name(self):
-        with mock.patch("os.geteuid", return_value=501):
+        # このマシンに入っているワーカー CLI (やスタブ) に左右されないよう、git 以外は未導入扱い
+        real_which = doctor.which
+        with mock.patch("os.geteuid", return_value=501), \
+                mock.patch.object(doctor, "which", lambda c: real_which(c) if c == "git" else None):
             return {c.name: c for c in doctor.run_checks()}
 
     def test_demo_has_no_errors_as_normal_user(self):

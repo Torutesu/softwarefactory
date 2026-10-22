@@ -75,8 +75,11 @@ def create_worktree(repo: Path, wt_path: Path, branch: str = "", detached: bool 
     """worktree を作る。既存があれば再利用。branch を省略か detached=True で detach。"""
     wt_path = Path(wt_path)
     if wt_path.exists() and (wt_path / ".git").exists():
-        # 中断や競合で HEAD の無い (unborn) worktree が残っていると永久に失敗するので作り直す
-        if _git(wt_path, "rev-parse", "--verify", "HEAD").code == 0:
+        # 中断や競合で HEAD の無い (unborn) worktree が残っていると永久に失敗するので作り直す。
+        # 「本当に unborn」(rev-parse が 128 かつ HEAD がブランチを指している) のときだけ。
+        # タイムアウト (124) や停止要求 (130) で作業中の worktree を消さない
+        r = _git(wt_path, "rev-parse", "--verify", "HEAD")
+        if r.code != 128 or _git(wt_path, "symbolic-ref", "HEAD").code != 0:
             return wt_path
         _git(repo, "worktree", "remove", "--force", str(wt_path))
     # ゴミ掃除 (パスが残っているが worktree が無い場合)

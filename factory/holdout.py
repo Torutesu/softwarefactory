@@ -146,7 +146,9 @@ def _holdout_files(d: Path) -> List[Path]:
     out = []
     for p in sorted(d.rglob("*")):
         rel = p.relative_to(d)
-        if p.is_file() and rel.parts[0] != RUNS_DIR and "__pycache__" not in rel.parts:
+        # runs/ (詳細ログ)・__pycache__・ドットファイル (Finder の .DS_Store 等) は指紋に含めない
+        if (p.is_file() and rel.parts[0] != RUNS_DIR and "__pycache__" not in rel.parts
+                and not any(part.startswith(".") for part in rel.parts)):
             out.append(p)
     return out
 
@@ -157,6 +159,9 @@ def fingerprint(factory: Factory, mid: str) -> Optional[str]:
     d = factory.holdout_dir_for(mid)
     if not d.is_dir():
         return None
+    if not os.access(d, os.R_OK | os.X_OK):
+        # 封印中 (000) の rglob は黙って空を返し「全部消えた」に見える。読めないなら判定しない
+        raise PermissionError(f"holdout is sealed: {d}")
     h = hashlib.sha256()
     for p in _holdout_files(d):
         h.update(str(p.relative_to(d)).encode("utf-8") + b"\0")
@@ -180,11 +185,12 @@ def record_manifest(factory: Factory, mid: str) -> Optional[str]:
 
 
 def verify_manifest(factory: Factory, mid: str) -> str:
-    """"ok" | "unrecorded" (manifest 無し) | "tampered" | "missing" (holdout 無し)。"""
-    fp = fingerprint(factory, mid)
-    if fp is None:
-        return "missing"
+    """"ok" | "unrecorded" (manifest 無し) | "tampered" | "missing" (holdout も manifest も無し)。"""
     p = manifest_path(factory, mid)
+    fp = fingerprint(factory, mid)
+    if fp is None or not scenario_files(factory, mid):
+        # 記録したのに holdout (かシナリオ) が消えている = 削除による検証のすり抜け
+        return "tampered" if p.is_file() else "missing"
     if not p.is_file():
         return "unrecorded"
     try:
@@ -299,6 +305,9 @@ UI を持つ製品で Seed に基準スクショ (PNG) が同梱されている�
 - コマンドは非対話で動作するもののみ (curl, jq, python3, grep, diff など)。
 - 作業ディレクトリは実装リポジトリ: {Path(m.repo).resolve() if m.repo and Path(m.repo).exists() else "(greenfield: 未作成)"}
   環境変数 $FACTORY_REPO に同じパス、$FACTORY_PORT にアプリの待受ポートが入る。
+- シナリオから holdout 内のファイル (検証スクリプト・期待値・基準画像) を参照するときは、
+  絶対パスではなく必ず `$FACTORY_HOLDOUT_DIR/<ファイル名>` と書く
+  (検証時は改ざん防止のため holdout のコピーから実行される)。
 - 実装リポジトリのファイルは書き換えない (シナリオJSONの作成と Seed からの基準画像コピーのみ)。
 - 起動が必要な検証では、spec.md の run コマンドが $FACTORY_PORT で待ち受ける前提で curl を書く。
 - 最終メッセージは 3〜5 行の要約 (シナリオの網羅ポイント)。
@@ -340,6 +349,7 @@ def generate(factory: Factory, m: Mission, router: Router) -> bool:
     if errors:
         factory.event("holdout_failed", f"{m.id}: " + "; ".join(errors[:3]))
         return False
+    record_manifest(factory, m.id)  # 生成直後 (dev のコードが動く前) の状態を正とする
     factory.event("holdout_generated", m.id)
     return True
 
@@ -367,5 +377,6 @@ def _mock_generate(factory: Factory, m: Mission) -> bool:
     if errors:
         factory.event("holdout_failed", f"{m.id}: " + "; ".join(errors[:3]))
         return False
+    record_manifest(factory, m.id)  # 生成直後 (dev のコードが動く前) の状態を正とする
     factory.event("holdout_generated", m.id)
     return True

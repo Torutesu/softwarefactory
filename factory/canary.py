@@ -67,6 +67,11 @@ def run_canary(factory: Factory, mid: str, cfg=None, fix: bool = False, run_comp
     report_path = run_dir / f"canary-{stamp}.md"
     save_text(report_path, "\n".join(report_lines))
 
+    if hr.holdout_tampered:
+        # 製品の失敗ではなく検証基盤の問題。main を revert したり修復ミッションを作ったりしない
+        factory.event("canary_escalate", f"{mid}: holdout tampered")
+        print(f"[canary] {mid}: holdout シナリオの指紋が一致しないため判定不能 (needs_human)")
+        return {"status": "escalate", "report": str(report_path), "reason": "holdout_tampered"}
     if hr.ok:
         factory.event("canary_pass", mid)
         print(f"[canary] {mid}: PASS on main")

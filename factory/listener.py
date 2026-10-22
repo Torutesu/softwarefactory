@@ -103,9 +103,14 @@ class Listener:
             raise ValueError("files must be an object of {name: text}")
         files = {}
         for k, v in raw_files.items():
-            name = str(k).replace("\\", "/").lstrip("./")
-            # seed.md (ヘッダ) と mock/ (デモ用の答えキー: mock ワーカーが shell を実行する) は外部から置かせない
-            if not name or name in RESERVED_SEED_FILES or name.split("/", 1)[0] in RESERVED_SEED_DIRS:
+            raw = str(k).replace("\\", "/")
+            parts = [p for p in raw.split("/") if p not in ("", ".")]
+            # `..` を含む名前は正規化の前に拒否する (x/../mock/... で予約名をすり抜けさせない)。
+            # 大文字小文字を区別しないファイルシステム (macOS APFS 既定) のため比較は casefold
+            if not parts or ".." in parts or raw.startswith("/"):
+                raise ValueError(f"invalid file name: {k!r}")
+            if ("/".join(parts).casefold() in RESERVED_SEED_FILES
+                    or parts[0].casefold() in RESERVED_SEED_DIRS):
                 raise ValueError(f"reserved file name: {k!r}")
             if not isinstance(v, str):
                 raise ValueError(f"file content must be a string: {k!r}")
@@ -195,7 +200,8 @@ def make_server(factory: Factory, port: int = 8787, bind: str = "127.0.0.1",
             # JSON の Content-Type を必須にすると、別オリジンのページからは preflight が要り、
             # このサーバは OPTIONS に応じないので届かない
             ctype = (self.headers.get("Content-Type") or "").split(";", 1)[0].strip().lower()
-            if ctype != "application/json":
+            if not secret and ctype != "application/json":
+                # secret があれば署名/Bearer で本人確認できるので Content-Type は問わない
                 return self._json(415, {"error": "Content-Type must be application/json"})
             if not secret and not host_allowed(self.headers.get("Host") or "", bind):
                 listener.log(f"rejected Host header: {one_line(self.headers.get('Host'), 80)!r}")

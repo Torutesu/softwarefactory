@@ -282,6 +282,8 @@ def evaluate(factory: Factory, m: Mission, wt: Path, judge: bool = True, env_pas
     hr = HarnessResult()
     cwd = wt / build["project_subdir"] if build["project_subdir"] else wt
 
+    # 中断で封印 (000) が残っていたら戻す (dev ワーカーが走っていない検証の入口でだけ呼ばれる)
+    holdout_mod.unseal_if_stale(factory, m.id)
     state = holdout_mod.verify_manifest(factory, m.id)
     if state == "unrecorded" and not allow_record:
         # dev ループ中は dev 開始前に必ず記録している。無くなっているのは消された疑い
@@ -297,7 +299,8 @@ def evaluate(factory: Factory, m: Mission, wt: Path, judge: bool = True, env_pas
     scenarios = load_scenarios(factory, m.id, base=snap) if snap else []
     try:
         with holdout_mod.sealed(factory, m.id):
-            _evaluate_sealed(hr, build, cwd, m, scenarios, snap, env_passthrough)
+            _evaluate_sealed(hr, build, cwd, m, scenarios, snap, env_passthrough,
+                             real_holdout=factory.holdout_dir_for(m.id))
     finally:
         if snap:
             shutil.rmtree(snap, ignore_errors=True)
@@ -308,7 +311,14 @@ def evaluate(factory: Factory, m: Mission, wt: Path, judge: bool = True, env_pas
 
 
 def _evaluate_sealed(hr: HarnessResult, build: dict, cwd: Path, m: Mission, scenarios, snap,
-                     passthrough) -> None:
+                     passthrough, real_holdout: Optional[Path] = None) -> None:
+    if snap and real_holdout:
+        # 生成された step が holdout の絶対パスを直接書いていても、封印中の本体ではなく
+        # スナップショットを読むようにする ($FACTORY_HOLDOUT_DIR を使うのが正式)
+        for sc in scenarios:
+            for st in getattr(sc, "steps", []):
+                for src in {str(real_holdout), str(Path(real_holdout).resolve())}:
+                    st.cmd = st.cmd.replace(src, str(snap))
     if build["build"]:
         hr.build = _shell(build["build"], cwd, timeout=build["step_timeout_s"], passthrough=passthrough)
         if not hr.build.ok:

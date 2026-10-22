@@ -105,12 +105,38 @@ class TestHoldoutIntegrity(unittest.TestCase):
         self.assertEqual(stat.S_IMODE(f.holdout_dir_for(m.id).stat().st_mode), 0o755)
 
     def test_scenarios_see_snapshot_dir_not_holdout(self):
-        f, m, wt = _mission_with_holdout(self.tmp, {}, scenario_cmd='test "$FACTORY_HOLDOUT_DIR" != "%s"')
-        hd = str(f.holdout_dir_for(m.id))
-        (f.holdout_dir_for(m.id) / "SC-001.json").write_text(json.dumps(
-            {"id": "SC-001", "title": "x", "steps": [{"name": "s", "cmd": f'test "$FACTORY_HOLDOUT_DIR" != "{hd}"'}]}),
+        f, m, wt = _mission_with_holdout(self.tmp, {}, scenario_cmd='echo "$FACTORY_HOLDOUT_DIR" > seen.txt')
+        hd = f.holdout_dir_for(m.id)
+        (hd / "expected.txt").write_text("ok\n", encoding="utf-8")
+        # 絶対パスで holdout を参照する (生成されがちな) step もスナップショット側を読む
+        (hd / "SC-002.json").write_text(json.dumps(
+            {"id": "SC-002", "title": "abs", "steps": [{"name": "s", "cmd": f"grep -q ok {hd}/expected.txt"}]}),
             encoding="utf-8")
         holdout_mod.record_manifest(f, m.id)
+        hr = evaluate(f, m, wt, allow_record=False)
+        self.assertTrue(hr.ok, [s.steps[0].tail for s in hr.scenarios])
+        seen = (wt / "seen.txt").read_text(encoding="utf-8").strip()
+        self.assertNotEqual(seen, str(hd))
+        self.assertFalse(Path(seen).exists())  # 検証後にスナップショットは消える
+
+    def test_deleting_whole_holdout_is_tamper(self):
+        f, m, wt = _mission_with_holdout(self.tmp, {}, scenario_cmd="false")
+        holdout_mod.record_manifest(f, m.id)
+        shutil.rmtree(f.holdout_dir_for(m.id))
+        hr = evaluate(f, m, wt, allow_record=False)
+        self.assertTrue(hr.holdout_tampered)
+        self.assertFalse(hr.ok)
+
+    def test_dotfiles_do_not_trip_tamper(self):
+        f, m, wt = _mission_with_holdout(self.tmp, {}, scenario_cmd="true")
+        holdout_mod.record_manifest(f, m.id)
+        (f.holdout_dir_for(m.id) / ".DS_Store").write_bytes(b"\0")
+        self.assertEqual(holdout_mod.verify_manifest(f, m.id), "ok")
+
+    def test_stale_seal_is_restored_before_verify(self):
+        f, m, wt = _mission_with_holdout(self.tmp, {}, scenario_cmd="true")
+        holdout_mod.record_manifest(f, m.id)
+        os.chmod(f.holdout_dir_for(m.id), 0)
         self.assertTrue(evaluate(f, m, wt, allow_record=False).ok)
 
     def test_loop_halts_on_tamper(self):
@@ -347,7 +373,9 @@ class TestListenerHardening(unittest.TestCase):
 
     def test_reserved_files_rejected_without_side_effects(self):
         before = self._seeds()
-        for files in ({"seed.md": "# x"}, {"mock/mock_actions.json": "{}"}, {"./mock/x": "y"}):
+        for files in ({"seed.md": "# x"}, {"mock/mock_actions.json": "{}"}, {"./mock/x": "y"},
+                      {"x/../mock/scenarios/SC-001.json": "{}"}, {"x/../seed.md": "#"},
+                      {"Mock/mock_actions.json": "{}"}, {"SEED.md": "#"}, {"/etc/x": "y"}):
             self.assertEqual(self._post(json.dumps({"title": "evil", "files": files}).encode()), 400)
         self.assertEqual(self._seeds(), before)
 
