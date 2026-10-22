@@ -248,7 +248,8 @@ def _run_locked(factory: Factory, m: Mission, iterations: Optional[int], cfg: Op
                   "holdout regen でシナリオを作り直してから再実行)")
             break
 
-        hr = evaluate(factory, m, wt, env_passthrough=cfg.harness_env_passthrough)
+        hr = evaluate(factory, m, wt, env_passthrough=cfg.harness_env_passthrough,
+                      allow_record=False)  # dev 前に記録済み。無ければ消された疑い
         if hr.holdout_tampered:
             it.status = "failed"
             it.note = "[holdout_tamper] " + "; ".join(hr.warnings) + "\n" + it.note

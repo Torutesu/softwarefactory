@@ -259,10 +259,14 @@ class Config:
             seed_src = Path(__file__).resolve().parent / "data" / "demo_seed"
             proj_path = Path(root) / "products" / "demo_app"
             if not proj_path.exists():
-                shutil.copytree(demo_src, proj_path)
+                # バイトコードを製品リポジトリに入れない (並列ミッションのマージ競合の元)
+                shutil.copytree(demo_src, proj_path,
+                                ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+                (proj_path / ".gitignore").write_text("__pycache__/\n*.pyc\n", encoding="utf-8")
             seed_dst = Path(root) / "seeds" / "demo-app"
             if not seed_dst.exists():
-                shutil.copytree(seed_src, seed_dst)
+                shutil.copytree(seed_src, seed_dst,
+                                ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
             cfg.projects["demo_app"] = ProjectConfig(name="demo_app", path="products/demo_app")
             cfg.use_worker = "mock"
         return cfg

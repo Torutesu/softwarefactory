@@ -242,7 +242,8 @@ def _stop_service(proc) -> None:
             continue
 
 
-def evaluate(factory: Factory, m: Mission, wt: Path, judge: bool = True, env_passthrough=()) -> HarnessResult:
+def evaluate(factory: Factory, m: Mission, wt: Path, judge: bool = True, env_passthrough=(),
+             allow_record: bool = True) -> HarnessResult:
     """現在の worktree を検証し、結果を返す。
 
     ワーカーが書いたコード (build/test/run) を動かす前にシナリオを照合・スナップショットし、
@@ -255,6 +256,9 @@ def evaluate(factory: Factory, m: Mission, wt: Path, judge: bool = True, env_pas
     cwd = wt / build["project_subdir"] if build["project_subdir"] else wt
 
     state = holdout_mod.verify_manifest(factory, m.id)
+    if state == "unrecorded" and not allow_record:
+        # dev ループ中は dev 開始前に必ず記録している。無くなっているのは消された疑い
+        state = "tampered"
     if state == "tampered":
         hr.holdout_tampered = True
         hr.warnings.append("holdout シナリオが記録時の指紋と一致しません (改ざんの疑い)。検証を中止")

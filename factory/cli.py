@@ -57,7 +57,7 @@ def _resolve_worker_override(cfg: Config, name: str) -> None:
 
 # ---------------------------------------------------------------------------
 def cmd_init(args) -> None:
-    init_factory(Path(args.root).resolve(), demo=args.demo)
+    init_factory(Path(args.root).resolve(), demo=args.demo, force=args.force)
 
 
 def cmd_status(args) -> None:
@@ -686,6 +686,7 @@ def build_parser() -> argparse.ArgumentParser:
     sp = sub.add_parser("init", help="ファクトリを初期化")
     sp.add_argument("root", nargs="?", default=".", help="ファクトリルート (デフォルト: カレント)")
     sp.add_argument("--demo", action="store_true", help="デモ (サンプル製品リポジトリ) も作る")
+    sp.add_argument("--force", action="store_true", help="初期化済みでも config を作り直す")
     sp.set_defaults(fn=cmd_init)
 
     sp = sub.add_parser("status", help="ミッション一覧")

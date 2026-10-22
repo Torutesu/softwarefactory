@@ -206,31 +206,40 @@ def remote_url(repo: Path, name: str = "origin") -> Optional[str]:
 def branch_changes(repo: Path, branch: str, base: str = "") -> dict:
     """ブランチの base からの変更統計を返す。
 
-    戻り値: {"files": int, "lines": int, "paths": [str]}
+    戻り値: {"files": int, "lines": int, "paths": [str], "binary": [str], "deleted": [str]}
     マージゲートの blast radius 分類 (mergegate.py) で使う。
     merge-base 基準 (3-dot) なので、base 側が進んでいても逆差分を数えない。
     """
+    empty = {"files": 0, "lines": 0, "paths": [], "binary": [], "deleted": []}
     if not branch_exists(repo, branch) or not has_commits(repo):
-        return {"files": 0, "lines": 0, "paths": []}
+        return empty
     base = base or default_branch(repo)
-    r = _git(repo, "diff", "--numstat", f"{base}...{branch}")
+    rng = f"{base}...{branch}"
+    r = _git(repo, "diff", "--numstat", "--no-renames", rng)
     if r.code != 0:
-        r = _git(repo, "diff", "--numstat", f"{base}..{branch}")
+        rng = f"{base}..{branch}"
+        r = _git(repo, "diff", "--numstat", "--no-renames", rng)
         if r.code != 0:
-            return {"files": 0, "lines": 0, "paths": []}
-    files, lines, paths = 0, 0, []
+            return empty
+    files, lines, paths, binary = 0, 0, [], []
     for ln in (r.out or "").splitlines():
         if not ln.strip():
             continue
         added, _, rest = ln.partition("\t")
         deleted, _, path = rest.partition("\t")
-        paths.append(path.strip())
+        path = path.strip()
+        paths.append(path)
         files += 1
+        if added == "-" and deleted == "-":
+            binary.append(path)  # 行数に出ないので「小さい差分」に見せかけられないよう別枠で返す
         if added.isdigit():
             lines += int(added)
         if deleted.isdigit():
             lines += int(deleted)
-    return {"files": files, "lines": lines, "paths": paths}
+    ns = _git(repo, "diff", "--name-status", "--no-renames", rng)
+    removed = [ln.split("\t", 1)[1].strip() for ln in (ns.out or "").splitlines()
+               if ln.startswith("D\t")] if ns.code == 0 else []
+    return {"files": files, "lines": lines, "paths": paths, "binary": binary, "deleted": removed}
 
 
 def seed_worktree_files(repo, wt, patterns=None):

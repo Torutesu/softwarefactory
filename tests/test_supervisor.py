@@ -18,7 +18,7 @@ from factory.supervisor import step_intake, tick
 
 
 def _demo(tmp, autonomy=4):
-    init_factory(Path(tmp), demo=True)
+    init_factory(Path(tmp), demo=True, force=True)
     cfg = Config.create(tmp, demo=True)
     cfg.autonomy_level = autonomy
     cfg.max_repair_rounds = 1

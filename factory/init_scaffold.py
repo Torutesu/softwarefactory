@@ -81,13 +81,24 @@ Worker はここにある材料 (画像含む) を読んで仕様を立てます
 """
 
 
-def init_factory(root: Path, demo: bool = False) -> None:
+PRIVATE_DIRS = (".factory", "holdout")  # config/state/usage/secret 入りログと答えキー
+
+
+def init_factory(root: Path, demo: bool = False, force: bool = False) -> None:
     root = Path(root).resolve()
+    if (root / ".factory" / "config.json").is_file() and not force:
+        # 再実行で autonomy_level や projects を初期値に戻してしまう事故を防ぐ
+        raise SystemExit(f"エラー: {root} は初期化済みです (config を作り直すなら --force)")
     root.mkdir(parents=True, exist_ok=True)
     cfg = Config.create(str(root), demo=demo)
 
     for sub in ("seeds", "missions", "holdout", "repos", ".factory"):
         (root / sub).mkdir(parents=True, exist_ok=True)
+    for sub in PRIVATE_DIRS:
+        try:
+            (root / sub).chmod(0o700)
+        except OSError:
+            pass
 
     (root / ".gitignore").write_text(GITIGNORE, encoding="utf-8")
     (root / "holdout" / "README.md").write_text(HOLDOUT_README, encoding="utf-8")
