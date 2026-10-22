@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import re
 import secrets
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -53,7 +54,10 @@ class Mission:
     model: str = ""  # ミッション単位のモデル上書き (空なら config のまま)
     session: dict = field(default_factory=dict)  # {"worker":..., "session_id":...} セッション継続用
     cost_usd: Optional[float] = None  # 実装ワーカー呼出の累計コスト (judge/spec は usage 側に集計)
-    halt_reason: str = ""  # 打ち切り理由: noprogress | max_iterations | all_workers_failed | unreviewable | holdout_leak
+    merged_utc: str = ""  # main へマージした時刻 (空 = 未マージ)。notes の文字列では判定しない
+    merged_tier: str = ""
+    repair_of: str = ""  # カナリア修復ミッションの親 ID
+    halt_reason: str = ""  # 打ち切り理由: noprogress | max_iterations | all_workers_failed | unreviewable | holdout_leak | holdout_tamper
     created_utc: str = field(default_factory=now_utc_iso)
     updated_utc: str = field(default_factory=now_utc_iso)
     notes: str = ""
@@ -71,6 +75,38 @@ class Mission:
         m = cls(**d)
         m.iterations = iters
         return m
+
+
+_MISSION_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,80}$")
+# 旧形式 (notes に書いていた頃) の互換判定。行頭一致のみ (外部入力の notes 行には現れない形)
+_LEGACY_MERGED_RE = re.compile(r"^merged to main \(tier: [a-z]+\)\s*$", re.M)
+_LEGACY_REPAIR_RE = re.compile(r"^auto-created by canary repair-of:(\S+)\s*$", re.M)
+
+
+def valid_mission_id(mid: str) -> bool:
+    return bool(mid) and bool(_MISSION_ID_RE.match(mid)) and ".." not in mid
+
+
+def is_merged(m: "Mission") -> bool:
+    return bool(m.merged_utc) or bool(_LEGACY_MERGED_RE.search(m.notes or ""))
+
+
+def mark_merged(m: "Mission", tier: str) -> None:
+    m.merged_utc = now_utc_iso()
+    m.merged_tier = tier
+    m.notes = (m.notes + "\n" if m.notes else "") + f"merged to main (tier: {tier})"
+
+
+def repair_parent(m: "Mission") -> str:
+    if m.repair_of:
+        return m.repair_of
+    mt = _LEGACY_REPAIR_RE.search(m.notes or "")
+    return mt.group(1) if mt and valid_mission_id(mt.group(1)) else ""
+
+
+def one_line(s: str, limit: int = 200) -> str:
+    """外部入力を notes 等に埋め込む前に 1 行化して切り詰める。"""
+    return " ".join(str(s or "").split())[:limit]
 
 
 def new_mission_id() -> str:
@@ -115,6 +151,8 @@ class Factory:
         return self.state_dir / "state.json"
 
     def mission_dir(self, mid: str) -> Path:
+        if not valid_mission_id(mid):
+            raise ValueError(f"invalid mission id: {mid!r}")
         return self.missions_dir / mid
 
     def worktree(self, mid: str) -> Path:
@@ -127,6 +165,8 @@ class Factory:
         return self.mission_dir(mid) / "build.json"
 
     def holdout_dir_for(self, mid: str) -> Path:
+        if not valid_mission_id(mid):
+            raise ValueError(f"invalid mission id: {mid!r}")
         return self.holdout_dir / mid
 
     def reports_dir(self, mid: str) -> Path:
@@ -227,6 +267,8 @@ class Factory:
         self.index_mission(m)
 
     def get_mission(self, mid: str) -> Optional[Mission]:
+        if not valid_mission_id(mid):
+            return None
         p = self.mission_dir(mid) / "mission.json"
         d = load_json(p)
         return Mission.from_dict(d) if d else None

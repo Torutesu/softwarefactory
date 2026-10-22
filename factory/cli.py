@@ -36,7 +36,7 @@ from pathlib import Path
 from .config import Config, WorkerConfig, DEFAULT_WORKER_ORDER
 from .init_scaffold import init_factory
 from .loop import run_mission
-from .state import Factory
+from .state import Factory, is_merged, mark_merged
 from .usage import Usage
 from .util import run_cmd, which
 
@@ -294,7 +294,7 @@ def cmd_validate(args) -> None:
         raise SystemExit(f"mission not found: {args.mission}")
     repo_path = Path(m.repo).resolve() if Path(m.repo).is_absolute() else f.root / m.repo
     wt = f.worktree(m.id) if f.worktree(m.id).exists() else repo_path
-    hr = evaluate(f, m, wt)
+    hr = evaluate(f, m, wt, env_passthrough=cfg.harness_env_passthrough)
     print(json.dumps(hr.to_dict(), ensure_ascii=False, indent=2))
     if args.judge:
         judge_data = run_judge(f, m, hr, "(validate コマンド)", Router(cfg, Usage(f.state_dir)))
@@ -342,7 +342,7 @@ def cmd_merge(args) -> None:
         sys.exit(1)
     gitx.remove_worktree(repo_path, wt)
     m.status = "done"
-    m.notes = (m.notes + "\n" if m.notes else "") + f"merged to main (tier: {tier})"
+    mark_merged(m, tier)
     f.save_mission(m)
     f.event("mission_merged", m.id)
     print(f"merged: {m.id}")
@@ -405,7 +405,7 @@ def _print_status(f: Factory, show_bench: bool = False) -> None:
         print(f"(注: bench ミッション {len(bench_ms)} 件を省略 — `factory bench --history` / "
               "`factory report <id>` で確認、--all で表示)")
     # 目刻りの一行サマリ (--watch では詳細パネルに続く)
-    pending = [m for m in ms if m.status == "done" and "merged to main" not in (m.notes or "")]
+    pending = [m for m in ms if m.status == "done" and not is_merged(m)]
     nh = _needs_human_backlog(f)
     if pending or nh:
         print(f"(review 待ち {len(pending)} / needs_human {len(nh)} 詳細: status --watch)")
@@ -448,7 +448,7 @@ def _print_dashboard(f: Factory, cfg: Config) -> None:
 
     pend = [m for m in f.list_missions()
             if m.kind != "bench" and m.status == "done"
-            and "merged to main" not in (m.notes or "")]
+            and not is_merged(m)]
     if not pend:
         print("  なし")
     tiers: dict = {}
@@ -639,6 +639,9 @@ def cmd_holdout(args) -> None:
     # regen: 既存シナリオを掃除して再生成 (陳腐化した仕様のリフレッシュ)
     if m.status == "done" and not args.force:
         raise SystemExit("done ミッションのシナリオ再生成は --force を付けてください")
+    from .holdout import unseal_if_stale
+
+    unseal_if_stale(f, m.id)
     removed = 0
     if hdir.exists():
         for p in sorted(hdir.iterdir()):
@@ -653,6 +656,9 @@ def cmd_holdout(args) -> None:
     if not ok:
         print("[holdout] 生成に失敗しました (log/ワーカー出力を確認)", file=sys.stderr)
         sys.exit(1)
+    from .holdout import record_manifest
+
+    record_manifest(f, m.id)  # 作り直したシナリオを新しい正とする
     for p in scenario_files(f, m.id):
         print(f" generated: {Path(p).name}")
 

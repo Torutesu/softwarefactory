@@ -39,6 +39,14 @@ DEFAULT_SENSITIVE_PATHS = [
 # behavioral と scoped の境界 (変更行数)。dotnet/runtime のデータでは 1〜50 行の
 # agent PR は 76〜80% 合流、大きな変更は失敗率が上がる (Firecrawl 記事参照)。
 DEFAULT_SMALL_CHANGE_LINES = 50
+# 変更されると CI 実行内容・ビルド・テスト判定そのものが変わるパス (glob, リポジトリ相対)。
+# 自動マージで self-hosted runner にワークフローを持ち込ませない、テストを弱めさせないため sensitive 扱い
+DEFAULT_PROTECTED_PATHS = [
+    ".github/**", ".gitlab-ci.yml", ".circleci/**", ".buildkite/**",
+    "**/conftest.py", "pytest.ini", "tox.ini", "noxfile.py", "setup.cfg", "setup.py",
+    "pyproject.toml", "package.json", "Makefile", "**/Makefile", "Dockerfile", "**/Dockerfile",
+    ".pre-commit-config.yaml", ".claude/**", ".factory/**", ".worktreeinclude", ".gitattributes",
+]
 # worktree は空の checkout なので、gitignore されがちな環境ファイルをコピーする
 DEFAULT_WORKTREE_COPY = [".env", ".env.*", "config/secrets.json", "*.local"]
 
@@ -59,6 +67,7 @@ class WorkerConfig:
     auth: str = "subscription"  # subscription (ログイン済みプラン・既定) | api_key
     allowed_tools: List[str] = field(default_factory=list)  # claude: --allowedTools
     disallowed_tools: List[str] = field(default_factory=list)  # claude: --disallowedTools
+    env_passthrough: List[str] = field(default_factory=list)  # 秘密っぽい環境変数のうち、この CLI に渡すもの
 
     def resolved_command(self) -> str:
         if self.command:
@@ -112,6 +121,10 @@ class Config:
     noprogress_iterations: int = 2  # 連続でこの回数、実差分ゼロの反復が続いたら打ち切り (0 で無効)
     require_reviewable: bool = True  # build.json の test もホールドアウトも無いミッションは dev に入らない
     judge_on_harness_fail: bool = False  # harness 失敗時も judge を呼ぶか (既定: 呼ばずに枠を節約)
+    harness_env_passthrough: List[str] = field(default_factory=list)  # build/test/シナリオに渡す秘密っぽい環境変数
+    allow_mock_fallback: bool = False  # use_worker=auto のとき mock を最後のフォールバックに使うか
+    protected_paths: List[str] = field(
+        default_factory=lambda: list(DEFAULT_PROTECTED_PATHS))  # 触ったら sensitive (CI/ビルド/テスト基盤)
     collect: Dict[str, object] = field(default_factory=dict)  # 定時収集設定 (sources 等の素通し dict)
     projects: Dict[str, ProjectConfig] = field(default_factory=dict)
     workers: Dict[str, WorkerConfig] = field(default_factory=dict)
@@ -147,6 +160,9 @@ class Config:
             "noprogress_iterations": self.noprogress_iterations,
             "require_reviewable": self.require_reviewable,
             "judge_on_harness_fail": self.judge_on_harness_fail,
+            "harness_env_passthrough": list(self.harness_env_passthrough),
+            "allow_mock_fallback": self.allow_mock_fallback,
+            "protected_paths": list(self.protected_paths),
             "collect": dict(self.collect),
             "root": self.root,
             "projects": {k: vars(v) for k, v in self.projects.items()},
@@ -178,6 +194,7 @@ class Config:
                 auth=raw.get("auth", "subscription"),
                 allowed_tools=list(raw.get("allowed_tools") or []),
                 disallowed_tools=list(raw.get("disallowed_tools") or []),
+                env_passthrough=list(raw.get("env_passthrough") or []),
             )
         return cls(
             root=data.get("root") or os.getcwd(),
@@ -202,6 +219,10 @@ class Config:
             noprogress_iterations=int(data.get("noprogress_iterations", 2)),
             require_reviewable=bool(data.get("require_reviewable", True)),
             judge_on_harness_fail=bool(data.get("judge_on_harness_fail", False)),
+            harness_env_passthrough=list(data.get("harness_env_passthrough") or []),
+            allow_mock_fallback=bool(data.get("allow_mock_fallback", False)),
+            protected_paths=(list(data["protected_paths"]) if data.get("protected_paths") is not None
+                             else list(DEFAULT_PROTECTED_PATHS)),
             collect=dict(data.get("collect") or {}),
             projects=projects,
             workers=workers,

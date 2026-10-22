@@ -171,6 +171,10 @@ def _run_locked(factory: Factory, m: Mission, iterations: Optional[int], cfg: Op
     if not holdout_mod.scenario_files(factory, m.id):
         print("[loop] ホールドアウトシナリオを生成します (Holdout Generator)...")
         holdout_mod.generate(factory, m, router)
+    # dev (ワーカーのコード) が一度も走っていない今の状態を正として指紋を記録する
+    if holdout_mod.scenario_files(factory, m.id) and \
+            holdout_mod.verify_manifest(factory, m.id) == "unrecorded":
+        holdout_mod.record_manifest(factory, m.id)
 
     # --- Reviewability ゲート ---------------------------------------
     # loop-shaped の 3 条件 (repetitive / reviewable / valuable) のうち reviewable を機械判定:
@@ -244,7 +248,16 @@ def _run_locked(factory: Factory, m: Mission, iterations: Optional[int], cfg: Op
                   "holdout regen でシナリオを作り直してから再実行)")
             break
 
-        hr = evaluate(factory, m, wt)
+        hr = evaluate(factory, m, wt, env_passthrough=cfg.harness_env_passthrough)
+        if hr.holdout_tampered:
+            it.status = "failed"
+            it.note = "[holdout_tamper] " + "; ".join(hr.warnings) + "\n" + it.note
+            iterations_log.append(it)
+            m.halt_reason = "holdout_tamper"
+            factory.event("holdout_tamper_suspect", f"{m.id} iter={n} worker={wname}")
+            print(f"[loop] {m.id}: holdout シナリオの改ざんを検知 → 打ち切り (needs_human。"
+                  "holdout regen でシナリオを作り直してから再実行)")
+            break
         # harness が落ちた反復は合格し得ない。judge を呼ぶと LLM 1 回分の枠を使うだけなので既定で省く
         # (次反復への指摘は build/test の tail と失敗シナリオ名で足りる)
         if hr.ok or cfg.judge_on_harness_fail:

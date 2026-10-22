@@ -17,9 +17,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Optional
 
+from .. import holdout as holdout_mod
 from ..holdout import load_scenarios
 from ..state import Factory, Mission
-from ..util import child_env, load_json, run_shell
+from ..util import load_json, run_shell, scrubbed_env
 
 
 @dataclass
@@ -50,6 +51,7 @@ class HarnessResult:
     health_ok: bool = True
     scenarios: List[ScenarioResult] = field(default_factory=list)
     warnings: List[str] = field(default_factory=list)
+    holdout_tampered: bool = False  # 検証の前後でシナリオ一式が記録と食い違った
 
     @property
     def all_scenarios_ok(self) -> bool:
@@ -65,6 +67,8 @@ class HarnessResult:
 
     @property
     def ok(self) -> bool:
+        if self.holdout_tampered:
+            return False
         if self.build and not self.build.ok:
             return False
         if self.test and not self.test.ok:
@@ -86,19 +90,22 @@ class HarnessResult:
                 for x in self.scenarios
             ],
             "all_scenarios_ok": self.all_scenarios_ok,
+            "holdout_tampered": self.holdout_tampered,
             "base_score": self.base_score,
             "warnings": self.warnings,
         }
 
 
-def _shell(cmd: str, cwd: Path, port: Optional[int] = None, timeout: int = 600, env_extra: Optional[dict] = None) -> StepResult:
+def _shell(cmd: str, cwd: Path, port: Optional[int] = None, timeout: int = 600,
+           env_extra: Optional[dict] = None, passthrough=()) -> StepResult:
     t0 = time.time()
-    env = child_env({
+    # LLM が書いたコードを動かすので、API キー・トークン類は渡さない (passthrough だけ許可)
+    env = scrubbed_env({
         "FACTORY_REPO": str(cwd),
         "FACTORY_PORT": str(port) if port else "",
         "REPO": str(cwd),
         **(env_extra or {}),
-    })
+    }, passthrough=passthrough)
     pr = run_shell(cmd, cwd=cwd, timeout=timeout, env=env)
     return StepResult(
         name="shell",
@@ -110,10 +117,11 @@ def _shell(cmd: str, cwd: Path, port: Optional[int] = None, timeout: int = 600, 
     )
 
 
-def _check_step(step, cwd: Path, port: Optional[int], holdout_dir) -> StepResult:
+def _check_step(step, cwd: Path, port: Optional[int], holdout_dir, passthrough=()) -> StepResult:
     cwd = Path(cwd)
     holdout_dir = Path(holdout_dir)
-    r = _shell(step.cmd, cwd, port=port, timeout=step.timeout, env_extra={"FACTORY_HOLDOUT_DIR": str(holdout_dir)})
+    r = _shell(step.cmd, cwd, port=port, timeout=step.timeout,
+               env_extra={"FACTORY_HOLDOUT_DIR": str(holdout_dir)}, passthrough=passthrough)
     ok = r.ok
     if ok and step.expect_contains is not None:
         ok = step.expect_contains in r.tail
@@ -211,23 +219,75 @@ def _apply_port(url: str, port: int) -> str:
     return re.sub(r"(127\.0\.0\.1|localhost):\d+", lambda m: f"{m.group(1)}:{port}", url, count=1)
 
 
-def evaluate(factory: Factory, m: Mission, wt: Path, judge: bool = True) -> HarnessResult:
-    """現在の worktree を検証し、結果を返す。"""
+def _stop_service(proc) -> None:
+    """run で起動したサービスのプロセスグループを止める (TERM → 5 秒待って KILL)。"""
+    if not proc:
+        return
+    try:
+        pgid = os.getpgid(proc.pid)
+    except OSError:
+        pgid = None
+    for sig in (signal.SIGTERM, signal.SIGKILL):
+        try:
+            if pgid is not None:
+                os.killpg(pgid, sig)
+            else:
+                proc.send_signal(sig)
+        except (OSError, ProcessLookupError):
+            pass
+        try:
+            proc.wait(timeout=5)
+            return
+        except subprocess.TimeoutExpired:
+            continue
+
+
+def evaluate(factory: Factory, m: Mission, wt: Path, judge: bool = True, env_passthrough=()) -> HarnessResult:
+    """現在の worktree を検証し、結果を返す。
+
+    ワーカーが書いたコード (build/test/run) を動かす前にシナリオを照合・スナップショットし、
+    実行中は holdout を封印する。シナリオはスナップショットから実行する。
+    """
+    import shutil
+
     build = _load_build(factory, m)
     hr = HarnessResult()
     cwd = wt / build["project_subdir"] if build["project_subdir"] else wt
 
+    state = holdout_mod.verify_manifest(factory, m.id)
+    if state == "tampered":
+        hr.holdout_tampered = True
+        hr.warnings.append("holdout シナリオが記録時の指紋と一致しません (改ざんの疑い)。検証を中止")
+        return hr
+    if state == "unrecorded":
+        holdout_mod.record_manifest(factory, m.id)
+        hr.warnings.append("holdout の指紋が未記録だったため現状を記録しました")
+    snap = holdout_mod.snapshot(factory, m.id)
+    scenarios = load_scenarios(factory, m.id, base=snap) if snap else []
+    try:
+        with holdout_mod.sealed(factory, m.id):
+            _evaluate_sealed(hr, build, cwd, m, scenarios, snap, env_passthrough)
+    finally:
+        if snap:
+            shutil.rmtree(snap, ignore_errors=True)
+    if state != "missing" and holdout_mod.verify_manifest(factory, m.id) == "tampered":
+        hr.holdout_tampered = True
+        hr.warnings.append("検証中に holdout シナリオが書き換えられました (改ざんの疑い)")
+    return hr
+
+
+def _evaluate_sealed(hr: HarnessResult, build: dict, cwd: Path, m: Mission, scenarios, snap,
+                     passthrough) -> None:
     if build["build"]:
-        hr.build = _shell(build["build"], cwd, timeout=build["step_timeout_s"])
+        hr.build = _shell(build["build"], cwd, timeout=build["step_timeout_s"], passthrough=passthrough)
         if not hr.build.ok:
             hr.warnings.append("build に失敗したため test/run をスキップ")
-            return hr
+            return
     if build["test"]:
-        hr.test = _shell(build["test"], cwd, timeout=build["step_timeout_s"])
+        hr.test = _shell(build["test"], cwd, timeout=build["step_timeout_s"], passthrough=passthrough)
         if not hr.test.ok:
             hr.warnings.append("test に失敗したためシナリオ検証を続行 (結果には反映)")
 
-    scenarios = load_scenarios(factory, m.id)
     needs_service = bool(build["run"]) and any(sc.steps for sc in scenarios)
     proc = None
     port = None
@@ -237,7 +297,7 @@ def evaluate(factory: Factory, m: Mission, wt: Path, judge: bool = True) -> Harn
             if port is None:
                 port = 8765 + (int(m.id[-2:], 16) % 100)
             port = _pick_port(port)
-            env = child_env({"FACTORY_PORT": str(port), "FACTORY_REPO": str(cwd)})
+            env = scrubbed_env({"FACTORY_PORT": str(port), "FACTORY_REPO": str(cwd)}, passthrough=passthrough)
             proc = subprocess.Popen(
                 ["/bin/bash", "-lc", build["run"]],
                 cwd=str(cwd), env=env,
@@ -250,31 +310,20 @@ def evaluate(factory: Factory, m: Mission, wt: Path, judge: bool = True) -> Harn
                 hr.health_ok = _wait_health(url, timeout=build["wait_s"])
                 if not hr.health_ok:
                     hr.warnings.append(f"health_url が起動しませんでした: {url}")
-            else:
-                hr.service_started = True
         except Exception as e:
             hr.warnings.append(f"service 起動失敗: {e}")
 
     try:
-        hdir = factory.holdout_dir_for(m.id)
         for sc in scenarios:
             steps = []
             ok = True
             t0 = time.time()
             for st in sc.steps:
-                sr = _check_step(st, cwd, port, hdir)
+                sr = _check_step(st, cwd, port, snap, passthrough=passthrough)
                 steps.append(sr)
                 if not sr.ok:
                     ok = False
             hr.scenarios.append(ScenarioResult(
                 id=sc.id, title=sc.title, ok=ok, weight=sc.weight, steps=steps, seconds=time.time() - t0))
     finally:
-        if proc:
-            try:
-                os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
-            except Exception:
-                try:
-                    proc.terminate()
-                except Exception:
-                    pass
-    return hr
+        _stop_service(proc)

@@ -125,6 +125,27 @@ def child_env(extra: Optional[dict] = None) -> dict:
     return env
 
 
+# 名前から秘密情報と判断する環境変数 (値は見ない)。LLM が書いたコードを動かす harness と、
+# 確認なしで動くワーカー CLI には、明示的に許可したもの以外渡さない
+_SECRET_ENV_RE = re.compile(
+    r"(API_?KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIALS?|PRIVATE_KEY|ACCESS_KEY|SESSION_KEY)",
+    re.IGNORECASE)
+_SECRET_ENV_EXACT = {"SSH_AUTH_SOCK", "GPG_AGENT_INFO", "NETRC", "DATABASE_URL"}
+
+
+def is_secret_env(name: str) -> bool:
+    return name.upper() in _SECRET_ENV_EXACT or bool(_SECRET_ENV_RE.search(name))
+
+
+def scrubbed_env(extra: Optional[dict] = None, passthrough=()) -> dict:
+    """os.environ から秘密っぽい変数を除いた環境 (passthrough に挙げた名前は残す)。"""
+    keep = {p.upper() for p in (passthrough or ())}
+    env = {k: v for k, v in os.environ.items() if k.upper() in keep or not is_secret_env(k)}
+    if extra:
+        env.update({k: str(v) for k, v in extra.items()})
+    return env
+
+
 def tail(text: str, n: int = 1200) -> str:
     if not text:
         return ""

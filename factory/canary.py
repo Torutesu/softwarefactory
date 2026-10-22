@@ -16,7 +16,7 @@ from typing import Optional
 
 from . import gitx
 from .harness.runner import evaluate
-from .state import Factory, Mission
+from .state import Factory, Mission, is_merged
 from .util import now_utc_iso, save_text
 
 
@@ -28,7 +28,7 @@ def run_canary(factory: Factory, mid: str, cfg=None, fix: bool = False, run_comp
     m = factory.get_mission(mid)
     if not m:
         raise SystemExit(f"mission not found: {mid}")
-    if m.status != "done" or "merged to main" not in (m.notes or ""):
+    if m.status != "done" or not is_merged(m):
         raise SystemExit(f"{mid} は merge 済みミッションではありません (status={m.status})")
 
     repo = _repo_path(factory, m)
@@ -39,7 +39,8 @@ def run_canary(factory: Factory, mid: str, cfg=None, fix: bool = False, run_comp
     # カナリアも空の checkout。.env 等がないと build/run が偽失敗する
     gitx.seed_worktree_files(repo, cwt, getattr(cfg, "worktree_copy", None) if cfg else None)
     try:
-        hr = evaluate(factory, m, cwt)
+        hr = evaluate(factory, m, cwt,
+                      env_passthrough=getattr(cfg, "harness_env_passthrough", ()) if cfg else ())
     finally:
         gitx.remove_worktree(repo, cwt, force=True)
 
@@ -145,6 +146,8 @@ def _reseed_failure(factory: Factory, m: Mission, hr) -> Optional[str]:
         pass_score=m.pass_score,
         notes=f"auto-created by canary repair-of:{m.id}",
     )
+    new_m.repair_of = m.id
+    factory.save_mission(new_m)
     print(f"[canary] 再ミッション: {new_m.id}")
     return new_m.id
 

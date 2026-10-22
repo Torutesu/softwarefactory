@@ -26,7 +26,7 @@ from . import canary as canary_mod
 from . import gitx
 from .config import Config, WorkerConfig
 from .loop import run_mission
-from .state import Factory
+from .state import Factory, is_merged, mark_merged, repair_parent
 from .usage import Usage
 from .workers.router import Router
 
@@ -214,7 +214,7 @@ def step_deliver(factory: Factory, cfg: Config, dry_run: bool) -> dict:
         return {"merged": [], "canary": [], "escalate": []}
     merged, canaries, escalations = [], [], []
     for m in factory.list_missions():
-        if m.status != "done" or "merged to main" in (m.notes or ""):
+        if m.status != "done" or is_merged(m):
             continue
         if m.risk != "low":
             escalations.append(f"{m.id}: high-risk のマージは人間に確認してください")
@@ -247,7 +247,7 @@ def step_deliver(factory: Factory, cfg: Config, dry_run: bool) -> dict:
             continue
         gitx.remove_worktree(repo, wt)
         m.status = "done"
-        m.notes = (m.notes + "\n" if m.notes else "") + f"merged to main (tier: {tier})"
+        mark_merged(m, tier)
         factory.save_mission(m)
         factory.event("mission_merged", m.id)
         merged.append(m.id)
@@ -269,13 +269,12 @@ def _max_repairs(cfg: Config) -> int:
 
 
 def _repair_depth(factory: Factory, m) -> int:
-    """notes に `repair-of:<id>` の連鎖 (自分→親) を辿り、修復世代の深度を返す。"""
+    """repair_of (旧形式は notes の `repair-of:<id>`) の連鎖 (自分→親) を辿り、修復世代の深度を返す。"""
     depth = 0
     cur = m
     seen = set()
     for _ in range(10):
-        token = next((t[len("repair-of:"):] for t in (cur.notes or "").split()
-                      if t.startswith("repair-of:")), None)
+        token = repair_parent(cur)
         if not token:
             return depth
         parent = factory.get_mission(token)

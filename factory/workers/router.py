@@ -64,6 +64,20 @@ class Router:
             return MockWorker(wc)
         return None
 
+    def _mock_excluded(self) -> bool:
+        use = getattr(self.cfg, "use_worker", "auto")
+        if getattr(self.cfg, "allow_mock_fallback", False) or (use and use != "auto" and self._is_mock(use)):
+            return False
+        return any(self._type_of(n) in PURPOSE_CAPS and not self._is_mock(n) for n in self.cfg.worker_order)
+
+    def _type_of(self, name: str) -> str:
+        wc = (self.cfg.workers or {}).get(name)
+        t = wc.type if wc else name
+        return TYPE_MAP.get(t, t)
+
+    def _is_mock(self, name: str) -> bool:
+        return self._type_of(name) == "mock"
+
     def caps_for(self, name: str) -> tuple:
         w = self.worker_for(name)
         if w is None:
@@ -97,6 +111,12 @@ class Router:
             order = [use] + [n for n in order if n != use]
         avail = set(self.available_names())
         base = [n for n in dict.fromkeys(order) if n in avail and purpose in self.caps_for(n)]
+        # mock は prompt 中の mock-action (shell を含む) をそのまま実行する。本番で実ワーカーが
+        # 枠切れになったときに mock へ落ちると、Seed 経由の外部テキストが host 上で実行され得る
+        # うえ、何も実装しない「成功」になる。実ワーカーが 1 つでも設定されている構成では、
+        # 明示選択 (use_worker=<mock>) か allow_mock_fallback のときだけ mock を候補に残す
+        if self._mock_excluded():
+            base = [n for n in base if not self._is_mock(n)]
 
         # 用途別ルーティング (Uber のコスト方程式: Price/token レバー):
         # テキスト生成系 (spec/holdout/judge) を安いワーカーに寄せ、dev はスキルフルな

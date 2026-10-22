@@ -1,13 +1,12 @@
 """Worker 共通の結果型と基底クラス。"""
 from __future__ import annotations
 
-import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-from ..util import ProcResult, run_cmd
+from ..util import ProcResult, run_cmd, scrubbed_env
 
 QUOTA_PATTERNS = [
     r"usage limit",
@@ -32,12 +31,36 @@ AUTH_SCRUB_KEYS = (
 )
 
 
+# auth="api_key" のときに各 CLI が使う鍵。subscription の headless ログイン用トークン
+# (Mac mini で Keychain を使わない運用) は auth に関係なく残す
+API_KEY_ENV_BY_TYPE = {
+    "claude": ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"),
+    "codex": ("OPENAI_API_KEY",),
+    "opencode": ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "OPENROUTER_API_KEY"),
+    "openrouter": ("OPENROUTER_API_KEY",),
+}
+SUBSCRIPTION_ENV_BY_TYPE = {
+    "claude": ("CLAUDE_CODE_OAUTH_TOKEN",),
+}
+
+
 def child_env_for(worker_cfg, extra: Optional[dict] = None) -> dict:
-    """サブスク既定: API キーを外した環境を作る。auth="api_key" では素通し。"""
-    env = dict(os.environ)
+    """ワーカー CLI 用の環境。秘密っぽい変数は既定で外し、必要なものだけ通す。
+
+    - subscription (既定): API キーを外す (ログイン済みプランを使わせる。キーがあると API 課金に流れる)
+    - api_key: その CLI 種別が使う鍵だけ残す
+    - どちらでも FACTORY_LISTEN_SECRET / GH_TOKEN / SSH_AUTH_SOCK 等は渡さない (env_passthrough で個別に許可)
+    """
+    wtype = getattr(worker_cfg, "type", "")
+    keep = list(getattr(worker_cfg, "env_passthrough", None) or [])
+    keep += list(SUBSCRIPTION_ENV_BY_TYPE.get(wtype, ()))
+    if getattr(worker_cfg, "auth", "subscription") == "api_key":
+        keep += list(API_KEY_ENV_BY_TYPE.get(wtype, ()))
+    env = scrubbed_env(passthrough=keep)
     if getattr(worker_cfg, "auth", "subscription") == "subscription":
         for k in AUTH_SCRUB_KEYS:
-            env.pop(k, None)
+            if k not in (getattr(worker_cfg, "env_passthrough", None) or []):
+                env.pop(k, None)
     if extra:
         env.update({k: str(v) for k, v in extra.items()})
     return env
