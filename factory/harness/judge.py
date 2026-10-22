@@ -20,7 +20,8 @@ JUDGE_MAX_PRIORITIES = 3
 JUDGE_MAX_PRIORITY_CHARS = 160
 
 
-def judge_prompt(m: Mission, spec_text: str, hr: HarnessResult, worker_tail: str) -> str:
+def judge_prompt(m: Mission, spec_text: str, hr: HarnessResult, worker_tail: str,
+                 diff_text: Optional[str] = None) -> str:
     scen_lines = []
     for s in hr.scenarios:
         mark = "PASS" if s.ok else "FAIL"
@@ -50,7 +51,10 @@ def judge_prompt(m: Mission, spec_text: str, hr: HarnessResult, worker_tail: str
 {chr(10).join(scen_lines) if scen_lines else "(シナリオ未実施)"}
 
 {test_block}
-## 実装担当の最終報告
+## 実際の変更 (main からの git diff。判断の主根拠)
+{_diff_block(diff_text)}
+
+## 実装担当の自己申告 (参考情報。差分・シナリオ結果と食い違う場合は差分を信じる)
 {worker_tail}
 
 ## 出力 (厳密にこの JSON だけを返す。他のテキストを含めない)
@@ -64,10 +68,19 @@ def judge_prompt(m: Mission, spec_text: str, hr: HarnessResult, worker_tail: str
 ```
 
 - verdict: 全シナリオが仕様を満たし、かつ実装の品質に重大な懸念がなければ "pass"。それ以外は "revise"。
-- score: 0〜100 (シナリオ結果が主根拠。報告の質も 10 点程度で加味)。
+- score: 0〜100 (シナリオ結果と実際の差分が主根拠。自己申告は参考程度)。
 - priorities: verdict が "revise" のときは次反復の具体的な改善提案 (仕様レベルの指摘のみ。コード例は書かない)。pass のときは将来の改善提案 (省略可)。
 - 長さの上限: comments は {JUDGE_MAX_COMMENTS_CHARS} 字以内、priorities は重要な順に最大 {JUDGE_MAX_PRIORITIES} 件・各 {JUDGE_MAX_PRIORITY_CHARS} 字以内 (超過分は切り捨てられる)。
 """
+
+
+def _diff_block(diff_text: Optional[str]) -> str:
+    if diff_text is None:
+        return "(差分は取得していません)"
+    if not diff_text.strip():
+        return ("差分なし — main から何も変更されていません。"
+                "自己申告で「完了」とあっても、変更ゼロで仕様を満たせる場合を除き pass にしないこと。")
+    return "```diff\n" + diff_text + "\n```"
 
 
 def parse_judge_json(text: str) -> Optional[dict]:
@@ -86,9 +99,10 @@ def parse_judge_json(text: str) -> Optional[dict]:
     return None
 
 
-def run_judge(factory: Factory, m: Mission, hr: HarnessResult, worker_tail: str, router) -> Optional[dict]:
+def run_judge(factory: Factory, m: Mission, hr: HarnessResult, worker_tail: str, router,
+              diff_text: Optional[str] = None) -> Optional[dict]:
     spec_text = load_text(factory.spec_file(m.id))
-    prompt = judge_prompt(m, spec_text, hr, worker_tail)
+    prompt = judge_prompt(m, spec_text, hr, worker_tail, diff_text)
     try:
         _, res = router.run("judge", factory.mission_dir(m.id), prompt)
     except Exception:

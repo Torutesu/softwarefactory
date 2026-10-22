@@ -140,6 +140,21 @@ def _kill_group(proc) -> None:
             continue
 
 
+# supervisor が SIGTERM を受けたら立てる停止要求。立っている間は新しい子プロセスを起動しない
+SHUTDOWN = __import__("threading").Event()
+_ACTIVE_PROCS: set = set()
+_ACTIVE_LOCK = __import__("threading").Lock()
+
+
+def terminate_all_children() -> int:
+    """run_cmd が起動して実行中の子プロセスグループを全て止める (graceful shutdown 用)。"""
+    with _ACTIVE_LOCK:
+        procs = list(_ACTIVE_PROCS)
+    for p in procs:
+        _kill_group(p)
+    return len(procs)
+
+
 def run_cmd(args, cwd=None, timeout=None, env=None) -> ProcResult:
     """引数リストで外部コマンドを実行 (shell 不使用)。
 
@@ -148,6 +163,8 @@ def run_cmd(args, cwd=None, timeout=None, env=None) -> ProcResult:
     出力は常に str で返す (TimeoutExpired の途中出力は bytes で来るため decode する)。
     """
     t0 = dt.datetime.now()
+    if SHUTDOWN.is_set():
+        return ProcResult(130, "", "shutdown requested", 0.0)
     try:
         proc = subprocess.Popen(
             [str(a) for a in args],
@@ -164,6 +181,8 @@ def run_cmd(args, cwd=None, timeout=None, env=None) -> ProcResult:
         return ProcResult(127, "", str(e), 0.0)
     except OSError as e:  # PermissionError (実行権なし) / E2BIG (引数が長すぎる) など
         return ProcResult(126, "", f"{type(e).__name__}: {e}", 0.0)
+    with _ACTIVE_LOCK:
+        _ACTIVE_PROCS.add(proc)
     try:
         out, err = proc.communicate(timeout=timeout)
         return ProcResult(proc.returncode, out or "", err or "", (dt.datetime.now() - t0).total_seconds())
@@ -178,6 +197,9 @@ def run_cmd(args, cwd=None, timeout=None, env=None) -> ProcResult:
     except BaseException:
         _kill_group(proc)  # Ctrl-C / SIGTERM 中断でも子を残さない
         raise
+    finally:
+        with _ACTIVE_LOCK:
+            _ACTIVE_PROCS.discard(proc)
 
 
 def run_shell(cmd: str, cwd=None, timeout=None, env=None) -> ProcResult:

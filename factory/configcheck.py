@@ -30,6 +30,8 @@ RANGES = {
     "noprogress_iterations": (0, None),
     "judge_pass_score": (0, 100),
     "max_attempts": (1, 20),
+    "max_recover_attempts": (0, 20),
+    "judge_diff_chars": (0, 200_000),
 }
 WORKER_RANGES = {
     "timeout": (1, None),

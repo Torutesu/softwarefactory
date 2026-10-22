@@ -17,32 +17,20 @@ from __future__ import annotations
 
 import datetime as dt
 import json
-import time
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from . import canary as canary_mod
 from . import gitx
-from .config import Config, WorkerConfig
+from . import holdout as holdout_mod
+from . import loop as loop_mod
+from .config import Config, ConfigError, WorkerConfig
+from .gitx import main_branch_for  # noqa: F401 — 互換のため再公開
 from .loop import run_mission
 from .state import Factory, is_merged, mark_merged, repair_parent
 from .usage import Usage
 from .workers.router import Router
-
-
-def main_branch_for(cfg, m, repo: Path) -> str:
-    """projects.<p>.main_branch を返す (ミッションの repo が登録外なら checkout 中のブランチ)。"""
-    try:
-        target = Path(repo).resolve()
-        for pc in (getattr(cfg, "projects", None) or {}).values():
-            p = Path(pc.path)
-            p = p if p.is_absolute() else Path(cfg.root) / p
-            if p.resolve() == target and pc.main_branch and gitx.branch_exists(repo, pc.main_branch):
-                return pc.main_branch
-    except OSError:
-        pass
-    return gitx.default_branch(repo)
 
 
 def _repo_path(factory: Factory, m) -> Path:
@@ -315,15 +303,73 @@ def step_collect(factory: Factory, cfg: Config, dry_run: bool) -> dict:
                       "new": r.get("new", 0), "dup": r.get("dup", 0)} for r in res.get("rows") or []]}
 
 
+ACTIVE_STATUSES = ("spec", "holdout", "dev")
+
+
+def pause_file(factory: Factory) -> Path:
+    return factory.state_dir / "PAUSE"
+
+
+def step_recover(factory: Factory, cfg: Config, dry_run: bool) -> dict:
+    """実行途中 (spec/holdout/dev) のまま、どのプロセスもロックしていないミッションを回収する。
+
+    flock はプロセスが死ぬと外れるので「ロックが取れる = 孤児」。電源断・kill -9・再起動で
+    残ったミッションは queued に戻し (封印された holdout も戻す)、max_recover_attempts を
+    超えたら crash_loop として人間に返す。
+    """
+    recovered, escalate = [], []
+    limit = max(0, int(getattr(cfg, "max_recover_attempts", 2) or 0))
+    for m in factory.list_missions():
+        if m.status not in ACTIVE_STATUSES:
+            continue
+        try:
+            lk = factory.lock(m.id)
+            lk.__enter__()
+        except RuntimeError:
+            continue  # 実行中
+        try:
+            cur = factory.get_mission(m.id)
+            if not cur or cur.status not in ACTIVE_STATUSES:
+                continue
+            if dry_run:
+                recovered.append(f"(dry) {cur.id}")
+                continue
+            holdout_mod.unseal_if_stale(factory, cur.id)
+            cur.recover_count = int(cur.recover_count or 0) + 1
+            if cur.recover_count > limit:
+                cur.status = "failed"
+                cur.halt_reason = "crash_loop"
+                escalate.append(f"{cur.id}: 実行途中の停止が {cur.recover_count} 回続いたため自動回収を停止 (crash_loop)")
+                factory.event("mission_crash_loop", cur.id)
+            else:
+                cur.status = "queued"
+                cur.halt_reason = "recovered"
+                recovered.append(cur.id)
+                factory.event("mission_recovered", f"{cur.id} (#{cur.recover_count})")
+            factory.save_mission(cur)
+        finally:
+            lk.__exit__(None, None, None)
+    return {"recovered": recovered, "escalate": escalate}
+
+
 def tick(factory: Factory, cfg: Config, dry_run: bool = False) -> dict:
     out = {"ts": dt.datetime.now().isoformat(timespec="seconds")}
+    if pause_file(factory).exists():
+        # 緊急停止スイッチ: `touch .factory/PAUSE` で何もしない (消せば次の tick から再開)
+        print(f"[tick] {pause_file(factory)} があるため一時停止中 (何もしません)")
+        return {**out, "paused": True}
+    out["recover"] = step_recover(factory, cfg, dry_run)
     out["collect"] = step_collect(factory, cfg, dry_run)
     out["intake"] = step_intake(factory, cfg, dry_run)
     out["execute"] = step_execute(factory, cfg, dry_run)
-    out["deliver"] = step_deliver(factory, cfg, dry_run)
+    if loop_mod.SHUTDOWN.is_set():
+        out["deliver"] = {"skipped": "shutdown"}
+    else:
+        out["deliver"] = step_deliver(factory, cfg, dry_run)
 
     needs_human = (out["intake"].get("escalate") if isinstance(out["intake"].get("escalate"), list) else
                    [out["intake"]["escalate"]] if out["intake"].get("escalate") else [])
+    needs_human += out["recover"].get("escalate") or []
     needs_human += out["execute"].get("escalate") or []
     needs_human += out["deliver"].get("escalate") or []
     out["needs_human"] = needs_human
@@ -434,17 +480,57 @@ def _notify(url: str, payload: dict) -> None:
         print(f"[notify] 失敗: {e}")
 
 
-def supervise(factory: Factory, cfg: Config, interval: int = 300) -> None:
-    """tick を interval 秒ごとに回し続ける (Ctrl-C で停止)。"""
-    print(f"[supervisor] 常駐開始: {interval} 秒ごとに tick (Ctrl-C で停止)")
+def supervise(factory: Factory, cfg: Config, interval: int = 300, max_ticks: int = 0) -> None:
+    """tick を interval 秒ごとに回し続ける。
+
+    - SIGTERM / SIGINT (launchd の停止・再起動・ログアウト) で止まる。実行中のワーカー/
+      build/test の子プロセスはその場で止め、途中のミッションは queued (shutdown) に戻す。
+      launchd は既定 20 秒で SIGKILL するので、長いワーカー呼出の完了は待たない。
+      2 回目のシグナルで即時終了する
+    - config は毎 tick 読み直す (緊急時に autonomy_level を下げる等が再起動なしで効く)。
+      読めない/検証エラーのときは直前の正しい config で続け、エラーを表示する
+    - `.factory/PAUSE` があれば tick は何もしない
+    """
+    import signal
+    import threading
+
+    stop = threading.Event()
+
+    def _on_signal(signum, _frame):
+        if stop.is_set():
+            raise KeyboardInterrupt
+        print(f"[supervisor] signal {signum} を受信: 実行中の子プロセスを止めて終了します", flush=True)
+        stop.set()
+        loop_mod.SHUTDOWN.set()
+        from .util import terminate_all_children
+
+        terminate_all_children()
+
+    if threading.current_thread() is threading.main_thread():
+        signal.signal(signal.SIGTERM, _on_signal)
+        signal.signal(signal.SIGINT, _on_signal)
+    print(f"[supervisor] 常駐開始: {interval} 秒ごとに tick (SIGTERM/Ctrl-C で停止)", flush=True)
+    cfg_path = cfg.state_file
     i = 0
     try:
-        while True:
+        while not stop.is_set():
             i += 1
+            try:
+                if cfg_path.is_file():
+                    fresh = Config.load(cfg_path)
+                    fresh.root = cfg.root
+                    cfg = fresh
+            except ConfigError as e:
+                print(f"[supervisor] config を読み直せません。直前の設定で続行します:\n{e}", flush=True)
             try:
                 tick(factory, cfg)
             except Exception as e:  # noqa — 1巡の失敗でクロックを止めない
-                print(f"[supervisor] tick 失敗: {e}")
-            time.sleep(interval)
+                print(f"[supervisor] tick 失敗: {e}", flush=True)
+            if max_ticks and i >= max_ticks:
+                break
+            stop.wait(interval)
     except KeyboardInterrupt:
-        print(f"[supervisor] 停止 ({i} 巡実施)")
+        pass
+    finally:
+        loop_mod.SHUTDOWN.clear()
+    print(f"[supervisor] 停止 ({i} tick)", flush=True)

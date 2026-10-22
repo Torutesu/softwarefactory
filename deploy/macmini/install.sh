@@ -93,6 +93,8 @@ plist() {
   echo '  <key>RunAtLoad</key><true/>'
   echo '  <key>KeepAlive</key><true/>'
   echo '  <key>ThrottleInterval</key><integer>60</integer>'
+  # SIGTERM 後、子プロセスを止めてミッションを queued に戻すまでの猶予 (既定 20 秒)
+  echo '  <key>ExitTimeOut</key><integer>45</integer>'
   echo '  <key>ProcessType</key><string>Background</string>'
   echo "  <key>StandardOutPath</key><string>$LOGDIR/${label##*.}.log</string>"
   echo "  <key>StandardErrorPath</key><string>$LOGDIR/${label##*.}.log</string>"

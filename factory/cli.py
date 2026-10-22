@@ -217,10 +217,36 @@ def _resolve_repo(cfg: Config, project: str, repo_arg: str) -> str:
     raise SystemExit("エラー: --project NAME か --repo PATH のどちらかを指定してください")
 
 
+def _mission_reset(f: Factory, mid: str) -> None:
+    """失敗/停止したミッションを queued に戻す (人間の判断で再実行させる)。"""
+    from .holdout import unseal_if_stale
+
+    m = f.get_mission(mid)
+    if not m:
+        raise SystemExit(f"mission not found: {mid}")
+    if m.status == "done":
+        raise SystemExit(f"{mid} は done です")
+    try:
+        with f.lock(mid):
+            unseal_if_stale(f, mid)
+            m = f.get_mission(mid)
+            m.status = "queued"
+            m.halt_reason = ""
+            m.recover_count = 0
+            f.save_mission(m)
+    except RuntimeError:
+        raise SystemExit(f"{mid} は実行中です (ロックされています)") from None
+    f.event("mission_reset", mid)
+    print(f"reset: {mid} -> queued")
+
+
 def cmd_mission(args) -> None:
     cfg, f = _require_cfg()
     if args.action == "list":
         cmd_status(args)
+        return
+    if args.action == "reset":
+        _mission_reset(f, args.title)
         return
     # new
     if not args.title:
@@ -317,7 +343,7 @@ def cmd_report(args) -> None:
 
 def _main_branch_for(cfg, m, repo_path: Path) -> str:
     """ミッションの repo に対応する projects.<p>.main_branch (登録外なら checkout 中のブランチ)。"""
-    from .supervisor import main_branch_for
+    from .gitx import main_branch_for
 
     return main_branch_for(cfg, m, repo_path)
 
@@ -712,6 +738,18 @@ def cmd_pr(args) -> None:
         sys.exit(1)
 
 
+def cmd_doctor(args) -> None:
+    from .doctor import main as doctor_main
+
+    sys.exit(doctor_main(as_json=args.json))
+
+
+def cmd_selftest(args) -> None:
+    from .selftest import main as selftest_main
+
+    sys.exit(selftest_main(keep=args.keep, verbose=args.verbose))
+
+
 def cmd_config_check(args) -> None:
     from .configcheck import errors, validate
 
@@ -850,8 +888,8 @@ def build_parser() -> argparse.ArgumentParser:
     sp.set_defaults(fn=cmd_seed)
 
     sp = sub.add_parser("mission", help="mission 操作")
-    sp.add_argument("action", choices=["new", "list"])
-    sp.add_argument("title", nargs="?", default="")
+    sp.add_argument("action", choices=["new", "list", "reset"])
+    sp.add_argument("title", nargs="?", default="", help="new: タイトル / reset: ミッション ID")
     sp.add_argument("--kind", default="greenfield", choices=["greenfield", "update"])
     sp.add_argument("--seed", default="", help="seeds/ 配下の seed 名")
     sp.add_argument("--project", default="", help="config に登録済みのプロジェクト名")
@@ -885,6 +923,15 @@ def build_parser() -> argparse.ArgumentParser:
     sp = sub.add_parser("report", help="最終レポート表示")
     sp.add_argument("mission")
     sp.set_defaults(fn=cmd_report)
+
+    sp = sub.add_parser("doctor", help="無人運転できる環境かの自己診断 (0=OK / 1=警告 / 2=エラー)")
+    sp.add_argument("--json", action="store_true")
+    sp.set_defaults(fn=cmd_doctor)
+
+    sp = sub.add_parser("selftest", help="一時ディレクトリで全パイプラインを mock で通す e2e QA")
+    sp.add_argument("--keep", action="store_true", help="作業ディレクトリを残す")
+    sp.add_argument("--verbose", action="store_true", help="各ステージの出力を表示")
+    sp.set_defaults(fn=cmd_selftest)
 
     sp = sub.add_parser("config", help="config.json の検証 (config check)")
     sp.add_argument("action", choices=["check"])

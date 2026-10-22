@@ -95,6 +95,42 @@ def create_worktree(repo: Path, wt_path: Path, branch: str = "", detached: bool 
     return wt_path
 
 
+def main_branch_for(cfg, m, repo: Path) -> str:
+    """projects.<p>.main_branch を返す (ミッションの repo が登録外 / そのブランチが無いなら checkout 中)。"""
+    try:
+        target = Path(repo).resolve()
+        for pc in (getattr(cfg, "projects", None) or {}).values():
+            p = Path(pc.path)
+            p = p if p.is_absolute() else Path(cfg.root) / p
+            if p.resolve() == target and pc.main_branch and branch_exists(repo, pc.main_branch):
+                return pc.main_branch
+    except OSError:
+        pass
+    return default_branch(repo)
+
+
+_DIFF_EXCLUDES = (":(exclude,glob)**/*.lock", ":(exclude,glob)**/package-lock.json", ":(exclude,glob)**/*.min.js",
+                  ":(exclude,glob)**/__pycache__/**", ":(exclude,glob)**/*.pyc")
+
+
+def diff_summary(wt: Path, base: str, max_chars: int = 4000) -> str:
+    """judge 用: base (main) からの実際の変更 (コミット済み + 未コミット) の要約。
+
+    --stat と先頭の hunk を max_chars まで。lock/生成物は除外。差分が無ければ空文字。
+    """
+    wt = Path(wt)
+    mb = _git(wt, "merge-base", base, "HEAD")
+    start = mb.out.strip() if mb.code == 0 and mb.out.strip() else base
+    stat = _git(wt, "diff", "--stat", "--no-renames", start, "--", ".", *_DIFF_EXCLUDES)
+    if stat.code != 0 or not stat.out.strip():
+        return ""
+    body = _git(wt, "diff", "--no-renames", "-U2", start, "--", ".", *_DIFF_EXCLUDES).out
+    text = stat.out.strip() + "\n\n" + body
+    if len(text) > max_chars:
+        text = text[:max_chars] + f"\n... (以下省略: 全 {len(text)} 文字)"
+    return text
+
+
 def repo_lock(repo: Path, lock_dir: Path):
     """repo 単位の排他 (baseline コミット作成と worktree 追加を並列ミッション間で直列化)。"""
     import hashlib

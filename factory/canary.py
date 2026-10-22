@@ -32,9 +32,7 @@ def run_canary(factory: Factory, mid: str, cfg=None, fix: bool = False, run_comp
         raise SystemExit(f"{mid} は merge 済みミッションではありません (status={m.status})")
 
     repo = _repo_path(factory, m)
-    from .supervisor import main_branch_for
-
-    default = main_branch_for(cfg, m, repo) if cfg else gitx.default_branch(repo)
+    default = gitx.main_branch_for(cfg, m, repo) if cfg else gitx.default_branch(repo)
     stamp = dt.datetime.now().strftime("%Y%m%d-%H%M%S")
     cwt = factory.mission_dir(mid) / "canary"
     # 中断で残った古い canary worktree (昔の main) を再利用しない

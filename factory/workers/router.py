@@ -13,7 +13,7 @@ from typing import Optional, Tuple
 
 from ..config import WorkerConfig
 from ..usage import Usage
-from ..util import which
+from ..util import SHUTDOWN, which
 from .base import AllWorkersFailed, Worker, WorkerResult
 from .claude_code import ClaudeCodeWorker
 from .codex import CodexWorker
@@ -174,7 +174,7 @@ class Router:
                 return name, res
             results.append(res)
             # 残りの候補がなければ失敗で終了
-            if i == len(order) - 1:
+            if i == len(order) - 1 or SHUTDOWN.is_set():
                 break
             # quota/timeout/unknown いずれも次のワーカーへフォールバック
             print(f"[router] worker {name} failed ({res.fail_kind or 'unknown'}) -> 次のワーカーへ")

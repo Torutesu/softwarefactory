@@ -9,10 +9,15 @@ from .config import Config
 from .harness.judge import run_judge
 from .harness.runner import HarnessResult, evaluate
 from .state import Factory, Iteration, Mission, mission_cost_usd, one_line
+from . import util as _util
 from .util import load_json, load_text, now_utc_iso, save_text, tail
 from .usage import Usage
 from .workers.base import AllWorkersFailed
 from .workers.router import Router
+
+
+# supervisor が SIGTERM を受けたら立てる (util.SHUTDOWN)。実行中のミッションは区切りで queued に戻る
+SHUTDOWN = _util.SHUTDOWN
 
 
 def build_dev_prompt(
@@ -133,7 +138,11 @@ def run_mission(factory: Factory, mid: str, confirm: bool = False, iterations: O
             print(f"[skip] {mid} は既に done")
             return m
         try:
-            return _run_locked(factory, m, iterations, cfg)
+            m2 = _run_locked(factory, m, iterations, cfg)
+            if SHUTDOWN.is_set() and m2.status != "done":
+                # 停止要求で子プロセスを止めた結果の失敗は、ミッション自体の失敗ではない
+                return _mark_crashed(factory, mid, "shutdown", "supervisor shutdown", status="queued")
+            return m2
         except Exception as e:
             # 途中の例外で status が spec/holdout/dev のまま放置されないようにする
             return _mark_crashed(factory, mid, "crash", f"{type(e).__name__}: {e}")
@@ -175,6 +184,7 @@ def _run_locked(factory: Factory, m: Mission, iterations: Optional[int], cfg: Op
         gitx.ensure_repo(repo_path)
         gitx.ensure_baseline_commit(repo_path)
         wt = gitx.create_worktree(repo_path, factory.worktree(m.id), f"factory/{m.id}")
+        base_branch = gitx.main_branch_for(cfg, m, repo_path)
 
     run_dir = factory.run_dir(m.id)
 
@@ -246,6 +256,9 @@ def _run_locked(factory: Factory, m: Mission, iterations: Optional[int], cfg: Op
     next_signals: List[str] = []
 
     for n in range(1, max_it + 1):
+        if SHUTDOWN.is_set():
+            m.halt_reason = "shutdown"
+            break
         it = Iteration(n=n, worker="-", started_utc=now_utc_iso())
         # 反復 2 以降で同一セッションを継続している場合、spec 全文の再送を省く (tokens/request レバー)
         resume = None
@@ -304,9 +317,11 @@ def _run_locked(factory: Factory, m: Mission, iterations: Optional[int], cfg: Op
         # harness が落ちた反復は合格し得ない。judge を呼ぶと LLM 1 回分の枠を使うだけなので既定で省く
         # (次反復への指摘は build/test の tail と失敗シナリオ名で足りる)
         if hr.ok or cfg.judge_on_harness_fail:
-            judge_data = run_judge(factory, m, hr, worker_tail, router)
-            if judge_data is None and hr.ok:
-                judge_data = run_judge(factory, m, hr, worker_tail, router)  # 一時的な失敗に 1 回だけ再試行
+            # ワーカーの自己申告ではなく実際の差分を judge に見せる (自己申告は品質シグナルにならない)
+            diff_text = gitx.diff_summary(wt, base_branch, max_chars=cfg.judge_diff_chars)
+            judge_data = run_judge(factory, m, hr, worker_tail, router, diff_text=diff_text)
+            if judge_data is None and hr.ok:  # 一時的な失敗に 1 回だけ再試行
+                judge_data = run_judge(factory, m, hr, worker_tail, router, diff_text=diff_text)
         else:
             judge_data = None
         if hr.ok and judge_data is None and cfg.judge_required:
