@@ -75,8 +75,11 @@ class OpenRouterWorker(Worker):
 
         res = WorkerResult(worker=self.name, ok=True, seconds=time.time() - t0)
         try:
-            res.text = data["choices"][0]["message"]["content"] or ""
-        except (KeyError, IndexError, TypeError):
+            content = data["choices"][0]["message"]["content"] or ""
+            if isinstance(content, list):  # 構造化 content: [{"type": "text", "text": ...}, ...]
+                content = "\n".join(str(p.get("text", "")) if isinstance(p, dict) else str(p) for p in content)
+            res.text = str(content)
+        except (KeyError, IndexError, TypeError, AttributeError):
             res.text = json.dumps(data, ensure_ascii=False)[:4000]
             res.ok = False
             res.raw_tail = "choices/message の形状が想定外"

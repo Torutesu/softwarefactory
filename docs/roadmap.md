@@ -139,11 +139,18 @@ Firecrawl「LLM Token Optimization: 9 Techniques in the Order to Apply Them」(2
   tmp+rename 原子替えと併用
 - [x] **worktree 掃除コマンド**: `factory worktrees [--dry-run] [--force-failed]` —
   done/bench ミッションの worktree を掃除。failed は調査用に既定で残す
-- 次候補: judge 入力をワーカーの自己申告から `git diff` 要約へ寄せる /
-  封印の macOS sandbox-exec 化 (root 運用でも効く隔離)
+- [x] **judge に実差分**: `gitx.diff_summary` を主根拠に、自己申告は参考扱い
+- [x] **品質・セキュリティ強化 (2026-10)**: 監査結果と対応は `docs/plan-2026-10-hardening.md`。
+  holdout の改ざん検知・スナップショット実行、環境変数の秘密除去、mock フォールバック禁止、
+  マージ状態の構造化、protected_paths、listener の CSRF/rebinding 対策、孤児回収、SIGTERM 停止、
+  PAUSE、config 検証、`doctor` / `selftest` / `needs-human`
+- 次候補: 封印の macOS sandbox-exec 化 (root 運用でも効く隔離・holdout を「読む」ことも塞ぐ) /
+  spec のスコープと差分の突き合わせ / ログローテーションと保持期間 / バックアップ /
+  マージ前の最新 main での再検証 / ミッション DAG / プロジェクト別クォータ / 枠の予測 / バージョニング
 
 ## 保守メモ
 
 - `mock` ワーカーはデモ・結合テストの要。実 LLM worker を追加しても、契約
   (prompt に入力 → 変更を出力) が同じならパイプラインへの影響はない
-- `run-all --parallel` 併用時、usage JSON の同時書き込みはベストエフォート (破損時は記録欠落のみ)
+- `run-all --parallel` 併用時の usage / state.json の同時書き込みは flock で直列化済み。
+  壊れた state.json は `state.json.corrupt-<ts>` に退避してから作り直す

@@ -143,7 +143,7 @@ def _kill_group(proc) -> None:
 # supervisor が SIGTERM を受けたら立てる停止要求。立っている間は新しい子プロセスを起動しない
 SHUTDOWN = __import__("threading").Event()
 _ACTIVE_PROCS: set = set()
-_ACTIVE_LOCK = __import__("threading").Lock()
+_ACTIVE_LOCK = __import__("threading").RLock()  # シグナルハンドラ (同じスレッド) からも取れるよう再入可
 
 
 def terminate_all_children() -> int:

@@ -28,17 +28,20 @@ host 上で同じユーザー権限で実行する。したがって「ワーカ
 | S4 | High | ワーカー CLI にも関係ない秘密が渡る (subscription でも `OPENROUTER_API_KEY`・`GH_TOKEN`・listener secret・`SSH_AUTH_SOCK`) | 既定で外し、CLI 種別ごとの必要鍵 (api_key 時) と `CLAUDE_CODE_OAUTH_TOKEN` (subscription) のみ通す。個別は `env_passthrough` | 実装済み |
 | S5 | High | 本番構成で実ワーカーが枠切れ → `mock` にフォールバック → prompt 中の `mock-action` (shell) が実行される。webhook の title に埋めれば host でコマンド実行 | 実ワーカーが設定された構成では mock を候補から外す (`use_worker=mock` か `allow_mock_fallback: true` のときのみ) | 実装済み |
 | S6 | High | 「マージ済み」「修復の親」を notes の部分文字列で判定。listener は `notes=f"auto-created from {source}"` に外部の `source` を入れるため、偽装でマージ済み扱い・修復深度の改変が可能 | `Mission.merged_utc/merged_tier/repair_of` の構造化フィールドへ。旧データは行頭一致の厳密 regex のみ互換。外部文字列は `one_line()` で 1 行化 | 実装済み |
-| S7 | High | マージゲートで `.github/workflows/*`・`conftest.py`・`pyproject.toml`・`Makefile` 等が mechanical/scoped → 自動マージ → self-hosted runner で任意ワークフロー実行・テスト基盤の改変 | `protected_paths` (既定: CI/ビルド/テスト基盤) に触れたら sensitive。テストファイルの削除・バイナリ/巨大ファイルは behavioral 以上 | 予定 |
-| S8 | Medium | listener: secret 無しのループバック運用でブラウザからの `text/plain` POST (CSRF) と DNS rebinding を受ける / `files` で `seed.md`・`mock/*` (答えキー) を差し替え可 / 深い JSON で 500 / 検証前に Seed を作る / ソケットにタイムアウト無し | `Content-Type: application/json` 必須、secret 無し時は Host をループバック名に限定、予約パス拒否、全入力検証の後に副作用、`RecursionError`→400、ソケット timeout | 予定 |
+| S7 | High | マージゲートで `.github/workflows/*`・`conftest.py`・`pyproject.toml`・`Makefile` 等が mechanical/scoped → 自動マージ → self-hosted runner で任意ワークフロー実行・テスト基盤の改変 | `protected_paths` (既定: CI/ビルド/テスト基盤) に触れたら sensitive。テストファイルの削除・バイナリ/巨大ファイルは behavioral 以上 | 実装済み |
+| S8 | Medium | listener: secret 無しのループバック運用でブラウザからの `text/plain` POST (CSRF) と DNS rebinding を受ける / `files` で `seed.md`・`mock/*` (答えキー) を差し替え可 / 深い JSON で 500 / 検証前に Seed を作る / ソケットにタイムアウト無し | `Content-Type: application/json` 必須、secret 無し時は Host をループバック名に限定、予約パス拒否、全入力検証の後に副作用、`RecursionError`→400、ソケット timeout | 実装済み |
 | S9 | Medium | mission id がパスに直結 (`repair-of:../../x` → `missions/../../x`) | `valid_mission_id` を `mission_dir`/`holdout_dir_for`/`get_mission` で強制 | 実装済み |
-| S10 | Medium | manifest 未記録時は現状を自動で正とする (ワーカーが manifest を消すと改ざん後が正になる) | dev 開始後 (iteration≥1) は `unrecorded` を tamper 扱い。記録は dev 前と `holdout regen` のみ | 予定 |
-| S11 | Low | `.factory/` (config・state・usage・listener.log) と holdout がデフォルト umask | `.factory/` と `holdout/` を 0700 で作成 | 予定 |
+| S10 | Medium | manifest 未記録時は現状を自動で正とする (ワーカーが manifest を消すと改ざん後が正になる) | dev 開始後 (iteration≥1) は `unrecorded` を tamper 扱い。記録は dev 前と `holdout regen` のみ | 実装済み |
+| S11 | Low | `.factory/` (config・state・usage・listener.log) と holdout がデフォルト umask | `.factory/` と `holdout/` を 0700 で作成 | 実装済み |
 
 残るリスク (今回は文書化のみ): 同一 uid で動く限り、ワーカーは holdout を「読む」ことはできる
 (検知は出力のパス出現と指紋照合)。完全な隔離は macOS `sandbox-exec` / 別ユーザー実行が必要
 (ロードマップ: sandbox 項目)。
 
 ## 2. バグ (監査で再現確認済み)
+
+状態: B1〜B28 すべて修正済み (回帰テスト: `tests/test_bugfixes.py` ほか)。B14 はロック内での
+読み直し、B26 は S8 の listener 強化で対応。
 
 | ID | 重大度 | 内容 | 対策 |
 |---|---|---|---|
@@ -67,6 +70,8 @@ host 上で同じユーザー権限で実行する。したがって「ワーカ
 
 ## 3. 追加機能 (価値/工数の順)
 
+状態: F1〜F8 すべて実装済み (`tests/test_ops_features.py`)。
+
 | ID | 機能 | 受け入れ条件 (mock で検証) | 工数 |
 |---|---|---|---|
 | F1 | 孤児ミッションの回収 (`step_recover` + `mission reset`) | `dev` のまま残ったミッションが次の tick で queued に戻り完走。ロック中は触らない。3 回連続で `failed/crash_loop` | S |
@@ -83,6 +88,10 @@ host 上で同じユーザー権限で実行する。したがって「ワーカ
 macOS sandbox。
 
 ## 4. テスト計画
+
+結果: テスト 141 → 260 件以上、行カバレッジ 69% → 85% 前後、ruff (E9,F,B) クリーン。
+追加したテスト: `test_security_hardening` / `test_bugfixes` / `test_ops_features` /
+`test_workers_parse` / `test_cli_smoke` / `test_pr_canary` / `test_openrouter`。
 
 - 監査のテストギャップ一覧を、上記の修正ごとに回帰テストとして追加 (各 B/S に最低 1 件)。
 - 追加の重点: cli の全サブコマンドの異常入力、pr.py、canary の revert 分岐、各ワーカーの

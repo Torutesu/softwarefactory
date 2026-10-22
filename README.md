@@ -124,6 +124,17 @@ dev ループは次の 3 つの保障で必ず止まります。止まった理�
 `build.json` に `test` が無く、ホールドアウトシナリオも無いミッションは「通った」を
 judge の自己申告でしか判定できないため、`blocked` (`unreviewable`) で止めて人間に返します。
 
+その他の `halt_reason`:
+
+| `halt_reason` | 意味 | 次の一手 |
+|---|---|---|
+| `holdout_leak` / `holdout_tamper` | ワーカー出力に holdout のパス / シナリオ一式が記録時の指紋と不一致 | `holdout regen <id>` → `mission reset <id>` |
+| `holdout_failed` | ホールドアウト生成で不正なシナリオしか作れなかった | `holdout regen <id>` |
+| `judge_unavailable` | judge の判定が取れない (枠切れ・JSON 不正)。harness だけでは合格にしない (`judge_required`) | 枠回復後に `mission reset <id>` |
+| `crash` | 例外で中断 (`reports/crash.txt` にトレースバック) | 原因を直して `mission reset <id>` |
+| `shutdown` / `interrupted` / `recovered` | supervisor 停止・Ctrl-C・電源断等。自動で queued に戻る | 不要 (次の tick で再実行) |
+| `crash_loop` | 途中停止が `max_recover_attempts` (既定 2) 回を超えた | 原因調査 → `mission reset <id>` |
+
 ## ホールドアウトの隔離
 
 実装ワーカーは確認なしモード (`--dangerously-skip-permissions` 等) で動くため、prompt の
@@ -134,6 +145,23 @@ judge の自己申告でしか判定できないため、`blocked` (`unreviewabl
   ファクトリーは一般ユーザーで動かす
 - **漏洩検知**: ワーカー出力に holdout の絶対パスや `holdout/<id>` が出たら、その反復で打ち切り
   (`halt_reason=holdout_leak`)。シナリオは見られた前提で `holdout regen` してから再実行する
+- **改ざん検知**: harness はワーカーが書いたコード (build/test) を動かすので、そのコードは同じ権限で
+  シナリオを書き換えられる。dev 開始前にシナリオ一式の指紋を `.factory/holdout_manifest/` に記録し、
+  検証のたびに「ワーカーのコードを動かす前」に照合 → 0700 の一時ディレクトリへスナップショット →
+  シナリオはスナップショットから実行。検証後にも照合し、食い違えば `holdout_tamper` で止める
+- **レポートの分離**: 失敗したシナリオのコマンドと出力は `holdout/<id>/runs/` にだけ書く
+  (`missions/<id>/reports/` は worktree の親でワーカーから読めるため、ID・タイトル・判定のみ)
+
+## 秘密情報の扱い (環境変数)
+
+ワーカー CLI と harness (build/test/run/シナリオ) には、名前が秘密らしい環境変数
+(`*API_KEY*`・`*TOKEN*`・`*SECRET*`・`*PASSWORD*`・`SSH_AUTH_SOCK` 等) を **渡しません**。
+
+- ワーカー: `auth: "subscription"` なら API キーを外し、`auth: "api_key"` ならその CLI 種別の鍵だけ通す。
+  headless ログイン用の `CLAUDE_CODE_OAUTH_TOKEN` は claude にだけ通す。個別に渡すなら worker の `env_passthrough`
+- harness: 製品のテストが必要とする変数は `harness_env_passthrough: ["DATABASE_URL"]` のように明示する
+- 実ワーカーが設定された構成では `mock` を黙ってフォールバックに使わない (`allow_mock_fallback`)。
+  mock は prompt 中の `mock-action` (shell を含む) を実行するため、外部テキストが host で動きうる
 
 ## マージゲート (blast radius ティア)
 
@@ -145,7 +173,14 @@ judge の自己申告でしか判定できないため、`blocked` (`unreviewabl
 | `mechanical` | テスト/ドキュメント/バージョンだけの変更 | 自動チェックでマージ可 |
 | `scoped` | `small_change_lines` (既定 50) 行以下の修正 | 同上 |
 | `behavioral` | 大きめの差分・greenfield (0→1) | **人間レビュー** |
-| `sensitive` | `sensitive_paths` (auth/決済/認証情報等) を含む | **領域オーナーのレビュー** |
+| `sensitive` | `sensitive_paths` (auth/決済/認証情報等) か `protected_paths` (CI・ビルド・テスト基盤) を含む | **領域オーナーのレビュー** |
+
+- `protected_paths` (既定: `.github/**`・`**/conftest.py`・`pyproject.toml`・`package.json`・`Makefile`・
+  `Dockerfile`・`.claude/**` 等) に触れる差分は sensitive。自動マージで self-hosted runner に任意の
+  ワークフローを持ち込ませない / テスト判定そのものを変えさせないため
+- テストファイルの削除とバイナリファイル (行数に出ない) を含む差分は behavioral 以上
+- マージは main repo の追跡ファイルに未コミット変更があると拒否し、競合したら元の状態に戻す
+  (`merge --squash` の競合は `merge --abort` では戻らないため)。`status=done` 以外は `--force` が必要
 
 - 自動出荷 (tick level>=2) は `autonomy_level` と risk に加え、ティアの `merge_policy` が
   `auto` のときだけ実行します。`review` のティアは `needs_human` に「マージゲート」エントリが出ます
@@ -238,10 +273,10 @@ factory pr <id>              # origin + gh があれば PR 作成、無ければ
 
 | コマンド | 説明 |
 |---|---|
-| `init <root> [--demo]` | ファクトリの初期化 |
+| `init <root> [--demo] [--force]` | ファクトリの初期化 (初期化済みの config は --force でのみ作り直す) |
 | `status [--watch [秒]]` | ミッション一覧 / ダッシュボード (--watch: usage 窓・review 待ちティア・canary・needs_human・ドラフト) |
 | `signals` | 取り込んだシグナルの一覧 |
-| `worker ping` | claude / opencode / mock の疎通確認 |
+| `worker ping` | ワーカー CLI の疎通確認 (`--version` のみ。失敗があれば exit 1) |
 | `seed add <src> [--name]` | Seed (材料一式) を追加 |
 | `ingest <src\|url> [--project] [--run]` | Seed 化 (+ ミッション作成~実行まで一括) |
 | `collect [--source] [--dry-run] [--list]` | 定時シグナル収集 → ドラフト化 (人間が `--promote` / `--dismiss`) |
@@ -252,14 +287,22 @@ factory pr <id>              # origin + gh があれば PR 作成、無ければ
 | `validate <id> [--judge]` | 検証のみ (Worker を呼ばない) |
 | `holdout <list\|regen> <id>` | シナリオの一覧 / 再生成 (陳腐化リフレッシュ) |
 | `report <id>` | 最終レポート表示 |
-| `merge <id> [--yes]` | worktree を main に squash マージ |
+| `merge <id> [--yes] [--force]` | worktree を main に squash マージ (done 以外は --force) |
 | `canary <id> [--fix] [--run-complete]` | main 上での再検証 + リカバリ |
 | `pr <id> [--base B]` | PR 作成 (gh 無ければ下書き) |
 | `compare-img a.png b.png` | 2枚の PNG 類似度 |
 | `usage [--days N] [--waste]` | 使用量レポート (+ セッション分析) |
 | `bench [--init] [--dry-run] [--workers a,b@c] [--repeat N]` | 社内 SWE ベンチ (purpose_workers の更新根拠。`@モデル` でモデル差比較 / purpose=spec で spec 品質比較) |
 | `tick [--dry-run]` | ファクトリークロック 1巡 (取込→実行→出荷→カナリア→修復) |
-| `supervisor [--interval N]` | tick を常駐で回す (自律運転) |
+| `supervisor [--interval N]` | tick を常駐で回す (自律運転)。SIGTERM で実行中の子プロセスを止め、途中のミッションを queued に戻して終了。config は毎 tick 読み直す |
+| `doctor [--json]` | 無人運転できる環境かの自己診断 (root・CLI・ログイン・git・空き容量・封印・孤児・PAUSE・launchd)。0/1/2 で終了 |
+| `selftest [--keep]` | 一時ディレクトリで init→run→merge gate→merge→canary→tick 冪等性を mock で通す e2e QA (本物の CLI は呼ばない) |
+| `config check [--json]` | config.json の検証 (型・範囲・ワーカー/プロジェクト参照・未知キー) |
+| `needs-human [--ack KEY] [--all] [--json]` | 人間の判断待ちの台帳 (重複排除済み。通知は新規/解消のときだけ) |
+| `mission reset <id>` | 失敗/停止したミッションを queued に戻す |
+| `worktrees [--dry-run] [--force-failed]` | 完了/bench ミッションの worktree を掃除 |
+
+緊急停止: `touch .factory/PAUSE` で tick は何もしなくなる (消せば次の tick から再開)。
 
 ## ディレクトリ構成
 

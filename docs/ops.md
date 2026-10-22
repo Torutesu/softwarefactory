@@ -289,6 +289,19 @@ bin/factory validate MYYYYMMDD-HHMMSS-xxxx --judge
 
 Worker を呼ばずに Harness と Judge だけ実行します。
 
+## 障害対応 (needs_human / halt_reason)
+
+```bash
+bin/factory needs-human                 # 判断待ちの台帳 (同じ内容は 1 件。通知は新規/解消のときだけ)
+bin/factory needs-human --ack <KEY>     # 確認済みにして再通知しない
+bin/factory status                      # STATUS の横に [halt_reason]
+bin/factory mission reset <id>          # 原因を直したら queued に戻す
+bin/factory doctor                      # 環境の問題 (CLI・ログイン・空き容量・封印・孤児) を一括診断
+touch .factory/PAUSE                    # 緊急停止 (tick が何もしなくなる)。rm で再開
+```
+
+`halt_reason` ごとの次の一手は README の「ループの停止条件」の表を参照。
+
 ## ミッションの状態遷移
 
 ```

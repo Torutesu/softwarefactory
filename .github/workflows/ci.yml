@@ -47,3 +47,7 @@ jobs:
 
       - name: Unit + integration tests (mock worker)
         run: python3 -m unittest discover -s tests -p 'test_*.py' -t .
+
+      # e2e: 一時ディレクトリで init → run → merge gate → tick (merge + canary) を mock で通す
+      - name: End-to-end selftest
+        run: bin/factory selftest

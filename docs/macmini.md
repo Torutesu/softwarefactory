@@ -31,8 +31,9 @@ self-hosted runner」を同居させる構成。クラウドの従量課金を�
 
 ```bash
 git clone https://github.com/Torutesu/softwarefactory ~/softwarefactory
+~/softwarefactory/bin/factory selftest          # 配線の e2e QA (mock のみ・サブスク枠は使わない)
 ~/softwarefactory/bin/factory init ~/factory
-cd ~/factory && ~/softwarefactory/bin/factory worker ping   # [ok] claude_code (auth=subscription) 等
+cd ~/factory && ~/softwarefactory/bin/factory doctor   # root/CLI/ログイン/git/空き容量/config を診断
 
 # supervisor (tick を 300 秒ごと) を LaunchAgent に登録
 ~/softwarefactory/deploy/macmini/install.sh --root ~/factory --interval 300
@@ -48,6 +49,20 @@ cd ~/factory && ~/softwarefactory/bin/factory worker ping   # [ok] claude_code (
   `opencode` / `git` / `python3` のディレクトリを plist に書き込む。CLI を入れ直したら
   install をもう一度実行する。
 - 自律度は `.factory/config.json` の `autonomy_level` で段階的に上げる (README 参照)。
+  config は毎 tick 読み直すので再起動は不要。検証エラーのある config は無視して直前の設定で続く
+- install.sh は登録前に `factory doctor` を実行し、エラー (exit 2) なら登録しない
+- 緊急停止: `touch ~/factory/.factory/PAUSE` (tick が何もしなくなる)。再開は削除するだけ
+- 停止 (`launchctl bootout` / 再起動 / ログアウト) は SIGTERM。実行中のワーカーと build/test は
+  その場で止め、途中のミッションは queued に戻る (次の起動で再実行)。電源断で残ったものも
+  次の tick が回収する (`halt_reason=recovered`)
+
+### 更新 (本番反映後の Mac mini 側)
+
+```bash
+cd ~/softwarefactory && git pull
+bin/factory selftest && (cd ~/factory && ~/softwarefactory/bin/factory doctor)
+deploy/macmini/install.sh --root ~/factory   # plist の更新と再起動 (実行中のミッションは queued に戻る)
+```
 
 ### Webhook (listener) も常駐させる場合
 
