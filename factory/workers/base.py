@@ -86,8 +86,9 @@ class WorkerResult:
 
 def classify_failure(stdout: str, stderr: str) -> str:
     """失敗の種類。stdout はモデルの本文 (例: 課金機能の実装なら "billing" を含む) なので
-    末尾のエラー部分だけを見る。stderr は全体を見る。"""
-    blob = (stderr or "") + "\n" + (stdout or "")[-600:]
+    末尾の「error を含む行」だけを見る。stderr は全体を見る。"""
+    err_lines = [ln for ln in (stdout or "")[-2000:].splitlines() if "error" in ln.lower()]
+    blob = (stderr or "") + "\n" + "\n".join(err_lines)
     low = blob.lower()
     for p in QUOTA_PATTERNS:
         if re.search(p, low):
