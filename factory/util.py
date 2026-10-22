@@ -41,8 +41,32 @@ def load_json(path: Path, default=None):
     try:
         with open(path, "r", encoding="utf-8") as f:
             return json.load(f)
-    except (OSError, json.JSONDecodeError):
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError):
         return default
+
+
+def quarantine_corrupt(path: Path) -> Optional[Path]:
+    """壊れた JSON を <name>.corrupt-<ts> に退避する (次の書き込みで黙って消さないため)。
+
+    ファイルが存在してパースできないときだけ退避し、退避先を返す。
+    """
+    path = Path(path)
+    if not path.is_file():
+        return None
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            json.load(f)
+        return None
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        stamp = dt.datetime.now().strftime("%Y%m%d-%H%M%S")
+        dst = path.with_name(f"{path.name}.corrupt-{stamp}")
+        try:
+            os.replace(path, dst)
+        except OSError:
+            return None
+        return dst
+    except OSError:
+        return None
 
 
 def save_json(path: Path, data) -> None:
@@ -92,24 +116,90 @@ def locked(path: Path):
             fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
 
 
+def _to_text(v) -> str:
+    if v is None:
+        return ""
+    if isinstance(v, bytes):
+        return v.decode("utf-8", "replace")
+    return v
+
+
+def _kill_group(proc) -> None:
+    """プロセスグループごと止める (TERM → 3 秒 → KILL)。孫プロセスを残さない。"""
+    import signal
+
+    for sig in (signal.SIGTERM, signal.SIGKILL):
+        try:
+            os.killpg(proc.pid, sig)
+        except (OSError, ProcessLookupError):
+            return
+        try:
+            proc.wait(timeout=3)
+            return
+        except subprocess.TimeoutExpired:
+            continue
+
+
+# supervisor が SIGTERM を受けたら立てる停止要求。立っている間は新しい子プロセスを起動しない
+SHUTDOWN = __import__("threading").Event()
+_ACTIVE_PROCS: set = set()
+_ACTIVE_LOCK = __import__("threading").RLock()  # シグナルハンドラ (同じスレッド) からも取れるよう再入可
+
+
+def terminate_all_children() -> int:
+    """run_cmd が起動して実行中の子プロセスグループを全て止める (graceful shutdown 用)。"""
+    with _ACTIVE_LOCK:
+        procs = list(_ACTIVE_PROCS)
+    for p in procs:
+        _kill_group(p)
+    return len(procs)
+
+
 def run_cmd(args, cwd=None, timeout=None, env=None) -> ProcResult:
-    """引数リストで外部コマンドを実行 (shell 不使用)。"""
+    """引数リストで外部コマンドを実行 (shell 不使用)。
+
+    新しいプロセスグループで起動し、タイムアウト時はグループごと止める
+    (ワーカー CLI や build/test が起動した孫プロセスを残さない)。
+    出力は常に str で返す (TimeoutExpired の途中出力は bytes で来るため decode する)。
+    """
     t0 = dt.datetime.now()
+    if SHUTDOWN.is_set():
+        return ProcResult(130, "", "shutdown requested", 0.0)
     try:
-        r = subprocess.run(
+        proc = subprocess.Popen(
             [str(a) for a in args],
             cwd=str(cwd) if cwd else None,
-            timeout=timeout,
-            capture_output=True,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
+            errors="replace",
             env=env,
+            start_new_session=True,
         )
-        pr = ProcResult(r.returncode, r.stdout or "", r.stderr or "", (dt.datetime.now() - t0).total_seconds())
-    except subprocess.TimeoutExpired as e:
-        pr = ProcResult(124, e.stdout or "", e.stderr or "", (dt.datetime.now() - t0).total_seconds(), timed_out=True)
     except FileNotFoundError as e:
-        pr = ProcResult(127, "", str(e), 0.0)
-    return pr
+        return ProcResult(127, "", str(e), 0.0)
+    except OSError as e:  # PermissionError (実行権なし) / E2BIG (引数が長すぎる) など
+        return ProcResult(126, "", f"{type(e).__name__}: {e}", 0.0)
+    with _ACTIVE_LOCK:
+        _ACTIVE_PROCS.add(proc)
+    try:
+        out, err = proc.communicate(timeout=timeout)
+        return ProcResult(proc.returncode, out or "", err or "", (dt.datetime.now() - t0).total_seconds())
+    except subprocess.TimeoutExpired as e:
+        _kill_group(proc)
+        try:
+            out, err = proc.communicate(timeout=5)
+        except (subprocess.TimeoutExpired, ValueError, OSError):
+            out, err = _to_text(e.stdout), _to_text(e.stderr)
+        return ProcResult(124, _to_text(out), _to_text(err), (dt.datetime.now() - t0).total_seconds(),
+                          timed_out=True)
+    except BaseException:
+        _kill_group(proc)  # Ctrl-C / SIGTERM 中断でも子を残さない
+        raise
+    finally:
+        with _ACTIVE_LOCK:
+            _ACTIVE_PROCS.discard(proc)
 
 
 def run_shell(cmd: str, cwd=None, timeout=None, env=None) -> ProcResult:
@@ -120,6 +210,27 @@ def run_shell(cmd: str, cwd=None, timeout=None, env=None) -> ProcResult:
 
 def child_env(extra: Optional[dict] = None) -> dict:
     env = dict(os.environ)
+    if extra:
+        env.update({k: str(v) for k, v in extra.items()})
+    return env
+
+
+# 名前から秘密情報と判断する環境変数 (値は見ない)。LLM が書いたコードを動かす harness と、
+# 確認なしで動くワーカー CLI には、明示的に許可したもの以外渡さない
+_SECRET_ENV_RE = re.compile(
+    r"(API_?KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIALS?|PRIVATE_KEY|ACCESS_KEY|SESSION_KEY)",
+    re.IGNORECASE)
+_SECRET_ENV_EXACT = {"SSH_AUTH_SOCK", "GPG_AGENT_INFO", "NETRC", "DATABASE_URL"}
+
+
+def is_secret_env(name: str) -> bool:
+    return name.upper() in _SECRET_ENV_EXACT or bool(_SECRET_ENV_RE.search(name))
+
+
+def scrubbed_env(extra: Optional[dict] = None, passthrough=()) -> dict:
+    """os.environ から秘密っぽい変数を除いた環境 (passthrough に挙げた名前は残す)。"""
+    keep = {p.upper() for p in (passthrough or ())}
+    env = {k: v for k, v in os.environ.items() if k.upper() in keep or not is_secret_env(k)}
     if extra:
         env.update({k: str(v) for k, v in extra.items()})
     return env
@@ -144,7 +255,7 @@ def head(text: str, n: int = 1200) -> str:
 
 
 def slugify(s: str, fallback: str = "seed") -> str:
-    """ディレクトリ名へ変換。英数字と \w (日本語などの文字) を許し、全部消えたら fallback。"""
+    r"""ディレクトリ名へ変換。英数字と \w (日本語などの文字) を許し、全部消えたら fallback。"""
     s = re.sub(r"[^\w\-]+", "-", s, flags=re.UNICODE).strip("-")
     return (s or fallback)[:60].lower()
 

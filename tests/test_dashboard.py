@@ -3,7 +3,7 @@
 - workers (usage): 日次/窓上限の実測表示
 - review 待ち: done 未マージミッションをティア分類で数える (未分行は unknown = fail-safe)
 - canary: 直近の canary_pass/canary_fail 実績
-- needs_human 滞留: 最新 tick イベントからの取り出し
+- needs_human 滞留: state.json の needs_human 台帳 (重複排除済み) の open 項目
 - collect 未処理ドラフト数
 - 普通の status には滞留があるときだけ 1 行サマリが出る
 """
@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import contextlib
 import io
-import json
 import os
 import shutil
 import sys
@@ -54,7 +53,9 @@ class TestDashboard(unittest.TestCase):
         # 実績: usage, canary, tick (needs_human)
         Usage(Path(self.tmp) / ".factory").record("mock", 2.0, ok=True)
         self.f.event("canary_fail", self.m.id)
-        self.f.event("tick", json.dumps({"needs_human": ["repair limit: M999"], "intake": {}}))
+        from factory.supervisor import record_needs_human
+
+        record_needs_human(self.f, ["repair limit: M999"])
 
     def tearDown(self):
         shutil.rmtree(self.tmp, ignore_errors=True)

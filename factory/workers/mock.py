@@ -12,7 +12,7 @@ import time
 from pathlib import Path
 from typing import Optional
 
-from ..util import run_shell
+from ..util import ProcResult, run_shell
 from .base import Worker, WorkerResult
 
 MOCK_BLOCK = re.compile(r"```mock-action\s*\n(.*?)\n```", re.S)
@@ -31,6 +31,8 @@ class MockWorker(Worker):
     # ------------------------------------------------------------------
     def run(self, prompt: str, cwd: Path, timeout=None, resume=None) -> WorkerResult:
         t0 = time.time()
+        if prompt.startswith("[Software Factory] Validator"):
+            return self._judge(prompt, t0)
         actions = [json.loads(m.group(1)) for m in MOCK_BLOCK.finditer(prompt)]
         logs = []
 
@@ -84,3 +86,16 @@ class MockWorker(Worker):
             text=text,
             seconds=time.time() - t0,
         )
+
+    def _judge(self, prompt: str, t0: float) -> WorkerResult:
+        """決定的なジャッジ: prompt のシナリオ結果行の PASS 比率で採点する (実 LLM の代役)。"""
+        passed = len(re.findall(r"^- \S+ PASS ", prompt, re.M))
+        failed = len(re.findall(r"^- \S+ FAIL ", prompt, re.M))
+        total = passed + failed
+        score = 100 if total == 0 else int(round(100 * passed / total))
+        verdict = "pass" if failed == 0 else "revise"
+        data = {"score": score, "verdict": verdict,
+                "comments": f"[mock judge] scenarios {passed}/{total} PASS",
+                "priorities": [] if verdict == "pass" else ["失敗シナリオの要件を満たす"]}
+        return WorkerResult(worker=self.name, ok=True, text=json.dumps(data, ensure_ascii=False),
+                            seconds=time.time() - t0)

@@ -80,27 +80,25 @@ class Usage:
         return self.calls_today(name) >= limit
 
     def window_budget_exceeded(self, name: str, cfg: WorkerConfig, now: Optional[dt.datetime] = None) -> bool:
-        """rolling window (直先 cfg.window_minutes 分) の呼び出し数が上限 超?"""
+        """rolling window (直近 cfg.window_minutes 分) の呼び出し数が上限に達したか。"""
         limit = cfg.window_call_limit
         if not limit or limit <= 0:
             return False
-        now = now or dt.datetime.now(dt.timezone.utc)
-        minutes = cfg.window_minutes or DEFAULT_WINDOW_MINUTES
-        cutoff = now - dt.timedelta(minutes=minutes)
-        count = 0
-        for back in range(2):  # 今日 + 昨日
-            day = (now.date() - dt.timedelta(days=back)).isoformat()
-            w = self._day_dict(day).get("workers", {}).get(name, {})
-            for ts in w.get("ts_list", []):
-                try:
-                    t = dt.datetime.fromisoformat(ts.replace("Z", "+00:00"))
-                except ValueError:
-                    continue
-                if t.tzinfo is None:
-                    t = t.replace(tzinfo=dt.timezone.utc)
-                if t >= cutoff:
-                    count += 1
-        return count >= limit
+        return self.window_calls(name, cfg, now=now) >= limit
+
+    def _window_days(self, cutoff: dt.datetime, now: dt.datetime) -> list:
+        """窓に掛かる日別ファイル名 (ファイルはローカル日付で切っているので、ローカル時刻で列挙する)。
+
+        前後 1 日を余分に読む (タイムスタンプ自体は UTC なので、余分に読んでも数え過ぎない)。
+        """
+        start = cutoff.astimezone().date() - dt.timedelta(days=1)
+        end = now.astimezone().date() + dt.timedelta(days=1)
+        days = []
+        d = start
+        while d <= end and len(days) < 400:
+            days.append(d.isoformat())
+            d += dt.timedelta(days=1)
+        return days
 
     def budget_status(self, name: str, cfg: WorkerConfig) -> str:
         parts = []
@@ -126,10 +124,11 @@ class Usage:
     def window_calls(self, name: str, cfg: WorkerConfig, now: Optional[dt.datetime] = None) -> int:
         now = now or dt.datetime.now(dt.timezone.utc)
         minutes = cfg.window_minutes or DEFAULT_WINDOW_MINUTES
+        if now.tzinfo is None:
+            now = now.replace(tzinfo=dt.timezone.utc)
         cutoff = now - dt.timedelta(minutes=minutes)
         count = 0
-        for back in range(2):
-            day = (now.date() - dt.timedelta(days=back)).isoformat()
+        for day in self._window_days(cutoff, now):
             w = self._day_dict(day).get("workers", {}).get(name, {})
             for ts in w.get("ts_list", []):
                 try:

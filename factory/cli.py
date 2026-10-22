@@ -33,10 +33,10 @@ import shutil
 import sys
 from pathlib import Path
 
-from .config import Config, WorkerConfig, save as save_config, DEFAULT_WORKER_ORDER
+from .config import Config, WorkerConfig, DEFAULT_WORKER_ORDER
 from .init_scaffold import init_factory
 from .loop import run_mission
-from .state import Factory
+from .state import Factory, is_merged, mark_merged
 from .usage import Usage
 from .util import run_cmd, which
 
@@ -57,7 +57,7 @@ def _resolve_worker_override(cfg: Config, name: str) -> None:
 
 # ---------------------------------------------------------------------------
 def cmd_init(args) -> None:
-    init_factory(Path(args.root).resolve(), demo=args.demo)
+    init_factory(Path(args.root).resolve(), demo=args.demo, force=args.force)
 
 
 def cmd_status(args) -> None:
@@ -81,6 +81,7 @@ def cmd_status(args) -> None:
 def cmd_worker_ping(args) -> None:
     cfg, _ = _require_cfg()
     ok = True
+    usable = 0
     for name in cfg.worker_order:
         wc = cfg.workers.get(name) or WorkerConfig(type=name)
         if wc.type == "mock":
@@ -91,21 +92,31 @@ def cmd_worker_ping(args) -> None:
 
             if os.environ.get("OPENROUTER_API_KEY", "").strip():
                 print(f"[ok] {name}: OPENROUTER_API_KEY 設定済 (model={wc.model or 'openrouter/auto'}, auth=api_key)")
+                usable += 1
             else:
-                print(f"[ng] {name}: OPENROUTER_API_KEY 未設定 (spec/holdout/judge 用途に使用可)")
-                ok = False
+                print(f"[--] {name}: OPENROUTER_API_KEY 未設定 (spec/holdout/judge 用途に使用可)")
             continue
         cmd = wc.resolved_command()
         path = which(cmd)
         if not path:
-            print(f"[ng] {name}: `{cmd}` が見つかりません (auth={wc.auth})")
-            ok = False
+            # 入れていないワーカーは失敗ではない (worker_order の既定には全種類が並ぶ)
+            print(f"[--] {name}: `{cmd}` が見つかりません (未導入なら worker_order から外せます)")
             continue
         r = run_cmd([path, "--version"], timeout=30)
         ver = (r.out or r.err).strip().splitlines()[:1]
+        if r.code != 0:
+            print(f"[ng] {name}: `{cmd} --version` が失敗 (exit {r.code}) {ver[0] if ver else ''}")
+            ok = False
+            continue
         print(f"[ok] {name}: `{cmd}` {ver[0] if ver else ''} (auth={wc.auth})")
+        usable += 1
+    if usable == 0 and not any((cfg.workers.get(n) or WorkerConfig(type=n)).type == "mock"
+                               and cfg.use_worker == n for n in cfg.worker_order):
+        print("[ng] 使える実ワーカーがありません")
+        ok = False
     if not ok:
         print("→ 未インストール/未設定の worker があります (.factory/config.json の worker_order を確認)。", file=sys.stderr)
+        sys.exit(1)
 
 
 def cmd_tick(args) -> None:
@@ -212,10 +223,36 @@ def _resolve_repo(cfg: Config, project: str, repo_arg: str) -> str:
     raise SystemExit("エラー: --project NAME か --repo PATH のどちらかを指定してください")
 
 
+def _mission_reset(f: Factory, mid: str) -> None:
+    """失敗/停止したミッションを queued に戻す (人間の判断で再実行させる)。"""
+    from .holdout import unseal_if_stale
+
+    m = f.get_mission(mid)
+    if not m:
+        raise SystemExit(f"mission not found: {mid}")
+    if m.status == "done":
+        raise SystemExit(f"{mid} は done です")
+    try:
+        with f.lock(mid):
+            unseal_if_stale(f, mid)
+            m = f.get_mission(mid)
+            m.status = "queued"
+            m.halt_reason = ""
+            m.recover_count = 0
+            f.save_mission(m)
+    except RuntimeError:
+        raise SystemExit(f"{mid} は実行中です (ロックされています)") from None
+    f.event("mission_reset", mid)
+    print(f"reset: {mid} -> queued")
+
+
 def cmd_mission(args) -> None:
     cfg, f = _require_cfg()
     if args.action == "list":
         cmd_status(args)
+        return
+    if args.action == "reset":
+        _mission_reset(f, args.title)
         return
     # new
     if not args.title:
@@ -241,7 +278,9 @@ def cmd_run(args) -> None:
     cfg, f = _require_cfg()
     _resolve_worker_override(cfg, args.worker)
     m = run_mission(f, args.mission, confirm=args.confirm, iterations=args.iterations, cfg=cfg)
-    print(f"status: {m.status}")
+    print(f"status: {m.status}" + (f" ({m.halt_reason})" if m.halt_reason else ""))
+    if m.halt_reason == "crash":
+        sys.exit(1)  # 例外で中断 (reports/crash.txt)。スクリプトから検知できるように
 
 
 def cmd_run_all(args) -> None:
@@ -294,7 +333,7 @@ def cmd_validate(args) -> None:
         raise SystemExit(f"mission not found: {args.mission}")
     repo_path = Path(m.repo).resolve() if Path(m.repo).is_absolute() else f.root / m.repo
     wt = f.worktree(m.id) if f.worktree(m.id).exists() else repo_path
-    hr = evaluate(f, m, wt)
+    hr = evaluate(f, m, wt, env_passthrough=cfg.harness_env_passthrough)
     print(json.dumps(hr.to_dict(), ensure_ascii=False, indent=2))
     if args.judge:
         judge_data = run_judge(f, m, hr, "(validate コマンド)", Router(cfg, Usage(f.state_dir)))
@@ -310,6 +349,13 @@ def cmd_report(args) -> None:
     print(p.read_text(encoding="utf-8"))
 
 
+def _main_branch_for(cfg, m, repo_path: Path) -> str:
+    """ミッションの repo に対応する projects.<p>.main_branch (登録外なら checkout 中のブランチ)。"""
+    from .gitx import main_branch_for
+
+    return main_branch_for(cfg, m, repo_path)
+
+
 def cmd_merge(args) -> None:
     cfg, f = _require_cfg()
     from . import gitx, mergegate
@@ -317,6 +363,10 @@ def cmd_merge(args) -> None:
     m = f.get_mission(args.mission)
     if not m:
         raise SystemExit(f"mission not found: {args.mission}")
+    if is_merged(m):
+        raise SystemExit(f"{m.id} は既にマージ済みです")
+    if m.status != "done" and not getattr(args, "force", False):
+        raise SystemExit(f"{m.id} は status={m.status} です (検証を通っていない差分は --force でのみマージ)")
     repo_path = Path(m.repo).resolve() if Path(m.repo).is_absolute() else f.root / m.repo
     wt = f.worktree(m.id)
     dirty = gitx.status_porcelain(wt)
@@ -336,13 +386,14 @@ def cmd_merge(args) -> None:
         if r.strip().lower() != "y":
             print("中止しました")
             return
-    r = gitx.merge_squash(repo_path, f"factory/{m.id}", mergegate.merge_message(m))
+    r = gitx.merge_squash(repo_path, f"factory/{m.id}", mergegate.merge_message(m),
+                          target_branch=_main_branch_for(cfg, m, repo_path))
     if r.code != 0:
         print(f"マージ失敗: {r.err or r.out}", file=sys.stderr)
         sys.exit(1)
     gitx.remove_worktree(repo_path, wt)
     m.status = "done"
-    m.notes = (m.notes + "\n" if m.notes else "") + f"merged to main (tier: {tier})"
+    mark_merged(m, tier)
     f.save_mission(m)
     f.event("mission_merged", m.id)
     print(f"merged: {m.id}")
@@ -405,23 +456,38 @@ def _print_status(f: Factory, show_bench: bool = False) -> None:
         print(f"(注: bench ミッション {len(bench_ms)} 件を省略 — `factory bench --history` / "
               "`factory report <id>` で確認、--all で表示)")
     # 目刻りの一行サマリ (--watch では詳細パネルに続く)
-    pending = [m for m in ms if m.status == "done" and "merged to main" not in (m.notes or "")]
+    pending = [m for m in ms if m.status == "done" and not is_merged(m)]
     nh = _needs_human_backlog(f)
     if pending or nh:
         print(f"(review 待ち {len(pending)} / needs_human {len(nh)} 詳細: status --watch)")
 
 
 def _needs_human_backlog(f: Factory) -> list:
-    """最新 tick イベントに積まれた needs_human の滞留リスト。"""
-    import json as _json
+    """needs_human 台帳の open (未 ack) 項目の文面。"""
+    from .supervisor import open_needs_human
 
-    for e in reversed(f.state().get("events") or []):
-        if e.get("kind") == "tick":
-            try:
-                return (_json.loads(e.get("detail") or "{}").get("needs_human") or [])
-            except _json.JSONDecodeError:
-                return []
-    return []
+    return [e.get("text", "") for e in open_needs_human(f)]
+
+
+def cmd_needs_human(args) -> None:
+    cfg, f = _require_cfg()
+    from .supervisor import ack_needs_human, open_needs_human
+
+    if args.ack:
+        if not ack_needs_human(f, args.ack):
+            raise SystemExit(f"not found: {args.ack}")
+        print(f"acked: {args.ack}")
+        return
+    items = open_needs_human(f, include_acked=args.all)
+    if args.json:
+        print(json.dumps(items, ensure_ascii=False, indent=2))
+        return
+    if not items:
+        print("needs_human: なし")
+        return
+    for e in items:
+        mark = " (ack)" if e.get("acked") else ""
+        print(f"{e['key']}  x{e.get('count', 1)}  since {e.get('first_seen', '')[:16]}{mark}\n    {e.get('text', '')}")
 
 
 def _print_dashboard(f: Factory, cfg: Config) -> None:
@@ -448,7 +514,7 @@ def _print_dashboard(f: Factory, cfg: Config) -> None:
 
     pend = [m for m in f.list_missions()
             if m.kind != "bench" and m.status == "done"
-            and "merged to main" not in (m.notes or "")]
+            and not is_merged(m)]
     if not pend:
         print("  なし")
     tiers: dict = {}
@@ -494,7 +560,6 @@ def cmd_signals(args) -> None:
     cfg, f = _require_cfg()
     st = f.state()
     signals = st.get("signals") or []
-    missions = st.get("missions") or {}
     if not signals:
         print("シグナルなし。`factory listen` で Webhook 受付、`factory ingest` で手動取込。")
         return
@@ -628,6 +693,22 @@ def cmd_holdout(args) -> None:
     if not m:
         raise SystemExit(f"mission not found: {args.mission}")
     hdir = f.holdout_dir_for(m.id)
+    if args.action == "rerecord":
+        # 人間がシナリオを手で直したあと「今の内容を正とする」(regen は手直しを捨ててしまう)
+        from .holdout import record_manifest, unseal_if_stale, verify_scenarios
+
+        unseal_if_stale(f, m.id)
+        errs = verify_scenarios(f, m.id)
+        if errs:
+            raise SystemExit("シナリオが不正です: " + "; ".join(errs[:3]))
+        try:
+            with f.lock(m.id):
+                fp = record_manifest(f, m.id)
+        except RuntimeError:
+            raise SystemExit(f"{m.id} は実行中です") from None
+        f.event("holdout_rerecorded", m.id)
+        print(f"[holdout] 指紋を記録し直しました: {fp[:12] if fp else '-'}")
+        return
     if args.action == "list":
         files = scenario_files(f, m.id)
         print(f"holdout: {hdir}")
@@ -640,6 +721,10 @@ def cmd_holdout(args) -> None:
     # regen: 既存シナリオを掃除して再生成 (陳腐化した仕様のリフレッシュ)
     if m.status == "done" and not args.force:
         raise SystemExit("done ミッションのシナリオ再生成は --force を付けてください")
+    from .holdout import manifest_path, unseal_if_stale
+
+    unseal_if_stale(f, m.id)
+    manifest_path(f, m.id).unlink(missing_ok=True)  # 生成に成功したら新しい指紋を記録し直す
     removed = 0
     if hdir.exists():
         for p in sorted(hdir.iterdir()):
@@ -654,6 +739,9 @@ def cmd_holdout(args) -> None:
     if not ok:
         print("[holdout] 生成に失敗しました (log/ワーカー出力を確認)", file=sys.stderr)
         sys.exit(1)
+    from .holdout import record_manifest
+
+    record_manifest(f, m.id)  # 作り直したシナリオを新しい正とする
     for p in scenario_files(f, m.id):
         print(f" generated: {Path(p).name}")
 
@@ -670,7 +758,43 @@ def cmd_pr(args) -> None:
     cfg, f = _require_cfg()
     from .pr import create_pr
 
-    create_pr(f, args.mission, base=args.base)
+    res = create_pr(f, args.mission, base=args.base)
+    if res.get("status") not in ("created", "draft"):
+        sys.exit(1)
+
+
+def cmd_doctor(args) -> None:
+    from .doctor import main as doctor_main
+
+    sys.exit(doctor_main(as_json=args.json))
+
+
+def cmd_selftest(args) -> None:
+    from .selftest import main as selftest_main
+
+    sys.exit(selftest_main(keep=args.keep, verbose=args.verbose))
+
+
+def cmd_config_check(args) -> None:
+    from .configcheck import errors, validate
+
+    path = Config.find_file()
+    if path is None:
+        print("エラー: .factory/config.json が見つかりません。", file=sys.stderr)
+        sys.exit(2)
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as e:
+        print(f"[error] {path}: JSON として読めません (line {e.lineno}: {e.msg})")
+        sys.exit(2)
+    issues = validate(data)
+    if args.json:
+        print(json.dumps([vars(i) for i in issues], ensure_ascii=False, indent=2))
+    else:
+        for i in issues:
+            print(i)
+        print(f"{path}: error {len(errors(issues))} / warning {len(issues) - len(errors(issues))}")
+    sys.exit(2 if errors(issues) else (1 if issues else 0))
 
 
 # ---------------------------------------------------------------------------
@@ -681,6 +805,7 @@ def build_parser() -> argparse.ArgumentParser:
     sp = sub.add_parser("init", help="ファクトリを初期化")
     sp.add_argument("root", nargs="?", default=".", help="ファクトリルート (デフォルト: カレント)")
     sp.add_argument("--demo", action="store_true", help="デモ (サンプル製品リポジトリ) も作る")
+    sp.add_argument("--force", action="store_true", help="初期化済みでも config を作り直す")
     sp.set_defaults(fn=cmd_init)
 
     sp = sub.add_parser("status", help="ミッション一覧")
@@ -761,7 +886,7 @@ def build_parser() -> argparse.ArgumentParser:
     sp.set_defaults(fn=cmd_collect)
 
     sp = sub.add_parser("holdout", help="holdout シナリオの list / regen")
-    sp.add_argument("action", choices=["list", "regen"])
+    sp.add_argument("action", choices=["list", "regen", "rerecord"])
     sp.add_argument("mission")
     sp.add_argument("--force", action="store_true", help="done ミッションの regen を許可")
     sp.set_defaults(fn=cmd_holdout)
@@ -788,8 +913,8 @@ def build_parser() -> argparse.ArgumentParser:
     sp.set_defaults(fn=cmd_seed)
 
     sp = sub.add_parser("mission", help="mission 操作")
-    sp.add_argument("action", choices=["new", "list"])
-    sp.add_argument("title", nargs="?", default="")
+    sp.add_argument("action", choices=["new", "list", "reset"])
+    sp.add_argument("title", nargs="?", default="", help="new: タイトル / reset: ミッション ID")
     sp.add_argument("--kind", default="greenfield", choices=["greenfield", "update"])
     sp.add_argument("--seed", default="", help="seeds/ 配下の seed 名")
     sp.add_argument("--project", default="", help="config に登録済みのプロジェクト名")
@@ -824,9 +949,30 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("mission")
     sp.set_defaults(fn=cmd_report)
 
+    sp = sub.add_parser("doctor", help="無人運転できる環境かの自己診断 (0=OK / 1=警告 / 2=エラー)")
+    sp.add_argument("--json", action="store_true")
+    sp.set_defaults(fn=cmd_doctor)
+
+    sp = sub.add_parser("selftest", help="一時ディレクトリで全パイプラインを mock で通す e2e QA")
+    sp.add_argument("--keep", action="store_true", help="作業ディレクトリを残す")
+    sp.add_argument("--verbose", action="store_true", help="各ステージの出力を表示")
+    sp.set_defaults(fn=cmd_selftest)
+
+    sp = sub.add_parser("config", help="config.json の検証 (config check)")
+    sp.add_argument("action", choices=["check"])
+    sp.add_argument("--json", action="store_true")
+    sp.set_defaults(fn=cmd_config_check)
+
+    sp = sub.add_parser("needs-human", help="人間の判断待ち (tick の escalate) の台帳")
+    sp.add_argument("--ack", default="", help="指定キーを確認済みにする (再通知しない)")
+    sp.add_argument("--all", action="store_true", help="ack 済みも表示")
+    sp.add_argument("--json", action="store_true")
+    sp.set_defaults(fn=cmd_needs_human)
+
     sp = sub.add_parser("merge", help="worktree を main に squash マージ")
     sp.add_argument("mission")
     sp.add_argument("--yes", action="store_true")
+    sp.add_argument("--force", action="store_true", help="done 以外 (検証未通過) のミッションもマージする")
     sp.set_defaults(fn=cmd_merge)
 
     sp = sub.add_parser("usage", help="使用量レポート")
@@ -851,6 +997,12 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv=None) -> None:
+    import urllib.error
+
+    from .bench import BenchError
+    from .collect import CollectError
+    from .config import ConfigError
+
     parser = build_parser()
     args = parser.parse_args(argv)
     try:
@@ -858,6 +1010,18 @@ def main(argv=None) -> None:
     except KeyboardInterrupt:
         print("\n中断しました")
         sys.exit(130)
+    except (ConfigError, CollectError, BenchError) as e:
+        # 利用者の入力・設定の誤り: トレースバックではなく理由だけ出して終了コード 2
+        print(f"エラー: {e}", file=sys.stderr)
+        sys.exit(2)
+    except ValueError as e:
+        if "invalid mission id" not in str(e):
+            raise
+        print(f"エラー: {e}", file=sys.stderr)
+        sys.exit(2)
+    except urllib.error.URLError as e:
+        print(f"エラー: ネットワークに到達できません ({getattr(e, 'reason', e)})", file=sys.stderr)
+        sys.exit(2)
 
 
 if __name__ == "__main__":

@@ -41,6 +41,7 @@ class Scenario:
     weight: float = 1.0
     steps: List[Step] = field(default_factory=list)
     notes: str = ""
+    invalid: str = ""  # 読めなかった/形式不正のシナリオファイル (失敗として数える)
 
     def to_dict(self) -> dict:
         return {"id": self.id, "title": self.title, "weight": self.weight,
@@ -48,9 +49,38 @@ class Scenario:
 
     @classmethod
     def from_dict(cls, d: dict) -> "Scenario":
-        steps = [Step(**{k: v for k, v in st.items() if k in Step.__dataclass_fields__}) for st in d.get("steps", [])]
-        return cls(id=d["id"], title=d.get("title", d["id"]), weight=float(d.get("weight", 1.0)),
-                   steps=steps, notes=d.get("notes", ""))
+        """形式を検証して読み込む。不正なら ValueError (呼び出し側で失敗シナリオにする)。"""
+        if not isinstance(d, dict):
+            raise ValueError("シナリオは JSON オブジェクトであること")
+        sid = d.get("id")
+        if not isinstance(sid, str) or not sid.strip():
+            raise ValueError("id が無い")
+        raw_steps = d.get("steps")
+        if not isinstance(raw_steps, list) or not raw_steps:
+            raise ValueError("steps が空か配列でない")
+        steps = []
+        for i, st in enumerate(raw_steps, 1):
+            if not isinstance(st, dict) or not isinstance(st.get("cmd"), str) or not st["cmd"].strip():
+                raise ValueError(f"step {i}: cmd (文字列) が必要")
+            kw = {k: v for k, v in st.items() if k in Step.__dataclass_fields__}
+            try:
+                kw["expect_exit"] = int(kw.get("expect_exit", 0))
+                kw["timeout"] = max(1, int(kw.get("timeout", 120)))
+            except (TypeError, ValueError):
+                raise ValueError(f"step {i}: expect_exit/timeout は整数") from None
+            for k in ("expect_contains", "expect_not_contains", "expect_regex"):
+                if kw.get(k) is not None:
+                    kw[k] = str(kw[k])
+            if kw.get("expect_png_similar") is not None and not isinstance(kw["expect_png_similar"], dict):
+                raise ValueError(f"step {i}: expect_png_similar はオブジェクト")
+            kw["name"] = str(kw.get("name") or f"step{i}")
+            steps.append(Step(**kw))
+        try:
+            weight = float(d.get("weight", 1.0))
+        except (TypeError, ValueError):
+            raise ValueError("weight は数値") from None
+        return cls(id=sid, title=str(d.get("title") or sid), weight=max(0.0, weight),
+                   steps=steps, notes=str(d.get("notes") or ""))
 
 
 # ---------------------------------------------------------------------------
@@ -100,6 +130,96 @@ def detect_leak(factory: Factory, mid: str, *texts: str) -> Optional[str]:
     return None
 
 
+# ---------------------------------------------------------------------------
+# 改ざん検知 (manifest) と検証用スナップショット
+# ---------------------------------------------------------------------------
+# harness は build/test でワーカーが書いたコードを動かす。そのコードは同じユーザー権限で
+# holdout を読み書きできる (chmod の封印は同一 uid なら戻せる) ので、
+#   1. dev に入る前にシナリオ一式の指紋を .factory/holdout_manifest/ に記録し
+#   2. 検証のたびに「ワーカーのコードを動かす前」に指紋を照合してスナップショットを取り、
+#      シナリオはスナップショット側から実行する (検証中に書き換えても結果に効かない)
+#   3. 検証後にもう一度照合し、途中で触られていたら holdout_tamper で止める
+RUNS_DIR = "runs"  # holdout/<id>/runs/: シナリオ失敗の詳細ログ (実装 Worker から見えない場所)
+
+
+def _holdout_files(d: Path) -> List[Path]:
+    out = []
+    for p in sorted(d.rglob("*")):
+        rel = p.relative_to(d)
+        # runs/ (詳細ログ)・__pycache__・ドットファイル (Finder の .DS_Store 等) は指紋に含めない
+        if (p.is_file() and rel.parts[0] != RUNS_DIR and "__pycache__" not in rel.parts
+                and not any(part.startswith(".") for part in rel.parts)):
+            out.append(p)
+    return out
+
+
+def fingerprint(factory: Factory, mid: str) -> Optional[str]:
+    import hashlib
+
+    d = factory.holdout_dir_for(mid)
+    if not d.is_dir():
+        return None
+    if not os.access(d, os.R_OK | os.X_OK):
+        # 封印中 (000) の rglob は黙って空を返し「全部消えた」に見える。読めないなら判定しない
+        raise PermissionError(f"holdout is sealed: {d}")
+    h = hashlib.sha256()
+    for p in _holdout_files(d):
+        h.update(str(p.relative_to(d)).encode("utf-8") + b"\0")
+        h.update(p.read_bytes() + b"\0")
+    return h.hexdigest()
+
+
+def manifest_path(factory: Factory, mid: str) -> Path:
+    return factory.state_dir / "holdout_manifest" / f"{mid}.json"
+
+
+def record_manifest(factory: Factory, mid: str) -> Optional[str]:
+    """現在のシナリオ一式を正として記録する (生成直後・regen 直後に呼ぶ)。"""
+    fp = fingerprint(factory, mid)
+    if fp is None:
+        return None
+    p = manifest_path(factory, mid)
+    ensure_dir(p.parent)
+    p.write_text(json.dumps({"mission": mid, "sha256": fp}), encoding="utf-8")
+    return fp
+
+
+def verify_manifest(factory: Factory, mid: str) -> str:
+    """"ok" | "unrecorded" (manifest 無し) | "tampered" | "missing" (holdout も manifest も無し)。"""
+    p = manifest_path(factory, mid)
+    fp = fingerprint(factory, mid)
+    if fp is None or not scenario_files(factory, mid):
+        # 記録したのに holdout (かシナリオ) が消えている = 削除による検証のすり抜け
+        return "tampered" if p.is_file() else "missing"
+    if not p.is_file():
+        return "unrecorded"
+    try:
+        expected = json.loads(p.read_text(encoding="utf-8")).get("sha256")
+    except (json.JSONDecodeError, OSError):
+        return "tampered"
+    return "ok" if expected == fp else "tampered"
+
+
+def snapshot(factory: Factory, mid: str) -> Optional[Path]:
+    """シナリオ一式を 0700 の一時ディレクトリへ複製する (呼び出し側で削除する)。"""
+    import shutil
+    import tempfile
+
+    d = factory.holdout_dir_for(mid)
+    if not d.is_dir():
+        return None
+    dst = Path(tempfile.mkdtemp(prefix=f"factory-holdout-{mid}-"))
+    for p in _holdout_files(d):
+        q = dst / p.relative_to(d)
+        q.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(p, q)
+    return dst
+
+
+def runs_dir(factory: Factory, mid: str) -> Path:
+    return factory.holdout_dir_for(mid) / RUNS_DIR
+
+
 def scenario_files(factory: Factory, mid: str) -> List[Path]:
     d = factory.holdout_dir_for(mid)
     if not d.exists():
@@ -107,14 +227,18 @@ def scenario_files(factory: Factory, mid: str) -> List[Path]:
     return sorted(p for p in d.glob("*.json"))
 
 
-def load_scenarios(factory: Factory, mid: str) -> List[Scenario]:
+def load_scenarios(factory: Factory, mid: str, base: Optional[Path] = None) -> List[Scenario]:
+    """base を渡すとスナップショット側から読む。"""
     out = []
-    for p in scenario_files(factory, mid):
+    files = sorted(Path(base).glob("*.json")) if base else scenario_files(factory, mid)
+    for p in files:
         try:
             d = json.loads(p.read_text(encoding="utf-8"))
             out.append(Scenario.from_dict(d))
-        except (json.JSONDecodeError, KeyError, TypeError):
-            continue
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError) as e:
+            # 黙って捨てると「シナリオ 0/0 で合格 (100 点)」になる。失敗シナリオとして残す
+            out.append(Scenario(id=p.stem, title=f"(不正なシナリオファイル {p.name})",
+                                invalid=f"{type(e).__name__}: {e}"[:300]))
     return out
 
 
@@ -181,6 +305,9 @@ UI を持つ製品で Seed に基準スクショ (PNG) が同梱されている�
 - コマンドは非対話で動作するもののみ (curl, jq, python3, grep, diff など)。
 - 作業ディレクトリは実装リポジトリ: {Path(m.repo).resolve() if m.repo and Path(m.repo).exists() else "(greenfield: 未作成)"}
   環境変数 $FACTORY_REPO に同じパス、$FACTORY_PORT にアプリの待受ポートが入る。
+- シナリオから holdout 内のファイル (検証スクリプト・期待値・基準画像) を参照するときは、
+  絶対パスではなく必ず `$FACTORY_HOLDOUT_DIR/<ファイル名>` と書く
+  (検証時は改ざん防止のため holdout のコピーから実行される)。
 - 実装リポジトリのファイルは書き換えない (シナリオJSONの作成と Seed からの基準画像コピーのみ)。
 - 起動が必要な検証では、spec.md の run コマンドが $FACTORY_PORT で待ち受ける前提で curl を書く。
 - 最終メッセージは 3〜5 行の要約 (シナリオの網羅ポイント)。
@@ -188,17 +315,17 @@ UI を持つ製品で Seed に基準スクショ (PNG) が同梱されている�
 
 
 def verify_scenarios(factory: Factory, mid: str) -> List[str]:
+    files = scenario_files(factory, mid)
+    if not files:
+        return ["scenario files not created"]
     errors = []
-    for p in scenario_files(factory, mid):
+    for p in files:
         try:
-            d = json.loads(p.read_text(encoding="utf-8"))
-            if not d.get("id") or not d.get("steps"):
-                errors.append(f"{p.name}: id/steps が不足")
-            for st in d.get("steps", []):
-                if not st.get("cmd"):
-                    errors.append(f"{p.name}: cmd の無い step がある")
-        except json.JSONDecodeError as e:
+            Scenario.from_dict(json.loads(p.read_text(encoding="utf-8")))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as e:
             errors.append(f"{p.name}: JSON不正 ({e})")
+        except ValueError as e:
+            errors.append(f"{p.name}: {e}")
     return errors
 
 
@@ -211,7 +338,7 @@ def generate(factory: Factory, m: Mission, router: Router) -> bool:
 
     prompt = holdout_prompt(factory, m, spec_text)
     errors = ["scenario files not created"]
-    for attempt in range(2):
+    for _attempt in range(2):
         try:
             _, res = router.run("holdout", factory.mission_dir(m.id), prompt)
         except Exception:
@@ -222,6 +349,7 @@ def generate(factory: Factory, m: Mission, router: Router) -> bool:
     if errors:
         factory.event("holdout_failed", f"{m.id}: " + "; ".join(errors[:3]))
         return False
+    record_manifest(factory, m.id)  # 生成直後 (dev のコードが動く前) の状態を正とする
     factory.event("holdout_generated", m.id)
     return True
 
@@ -249,5 +377,6 @@ def _mock_generate(factory: Factory, m: Mission) -> bool:
     if errors:
         factory.event("holdout_failed", f"{m.id}: " + "; ".join(errors[:3]))
         return False
+    record_manifest(factory, m.id)  # 生成直後 (dev のコードが動く前) の状態を正とする
     factory.event("holdout_generated", m.id)
     return True

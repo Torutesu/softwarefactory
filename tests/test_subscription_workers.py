@@ -29,11 +29,30 @@ class TestSubscriptionAuth(unittest.TestCase):
     def test_subscription_scrubs_api_keys(self):
         os.environ["ANTHROPIC_API_KEY"] = "sk-test"
         os.environ["OPENAI_API_KEY"] = "sk-openai"
-        os.environ["OPENROUTER_API_KEY"] = "sk-or"  # OpenRouter 専用なので残す
+        os.environ["OPENROUTER_API_KEY"] = "sk-or"  # OpenRouter ワーカーは同一プロセスで読むので CLI には不要
         env = child_env_for(MockCfg(type="claude", auth="subscription"))
         self.assertNotIn("ANTHROPIC_API_KEY", env)
         self.assertNotIn("OPENAI_API_KEY", env)
-        self.assertEqual(env.get("OPENROUTER_API_KEY"), "sk-or")
+        self.assertNotIn("OPENROUTER_API_KEY", env)
+
+    def test_unrelated_secrets_never_reach_worker_cli(self):
+        os.environ["FACTORY_LISTEN_SECRET"] = "s"
+        os.environ["GH_TOKEN"] = "g"
+        os.environ["CLAUDE_CODE_OAUTH_TOKEN"] = "oauth"
+        try:
+            env = child_env_for(MockCfg(type="claude", auth="subscription"))
+            self.assertNotIn("FACTORY_LISTEN_SECRET", env)
+            self.assertNotIn("GH_TOKEN", env)
+            # subscription の headless ログイン用トークンは claude に必要なので残す
+            self.assertEqual(env.get("CLAUDE_CODE_OAUTH_TOKEN"), "oauth")
+            self.assertNotIn("CLAUDE_CODE_OAUTH_TOKEN", child_env_for(MockCfg(type="codex")))
+            cfg = MockCfg(type="claude", auth="subscription")
+            cfg.env_passthrough = ["GH_TOKEN"]
+            self.assertEqual(child_env_for(cfg).get("GH_TOKEN"), "g")
+            self.assertIn("PATH", env)
+        finally:
+            for k in ("FACTORY_LISTEN_SECRET", "GH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"):
+                os.environ.pop(k, None)
 
     def test_api_key_mode_passes_through(self):
         os.environ["OPENAI_API_KEY"] = "sk-openai"
@@ -174,9 +193,15 @@ class TestRouterPurpose(unittest.TestCase):
                               "codex": WorkerConfig(type="codex", command="factory-missing-codex"),
                               "opencode": WorkerConfig(type="opencode", command="factory-missing-opencode")})
         r = Router(cfg, __import__("factory.usage", fromlist=["Usage"]).Usage(Path("/tmp/x")))
-        # CLI 実体が無い環境: codex/claude/opencode はスキップされ mock のみ
+        # CLI 実体が無い環境: codex/claude/opencode はスキップされ mock のみ「利用可能」
         self.assertEqual(r.available_names(), ["mock"])
+        # ただし実ワーカーが設定された構成では mock へ黙って落ちない (外部テキストの shell 実行防止)
+        self.assertEqual(r.candidates("dev"), [])
+        self.assertEqual(r.candidates("judge"), [])
+        cfg.allow_mock_fallback = True
         self.assertEqual(r.candidates("dev"), ["mock"])
+        cfg.allow_mock_fallback = False
+        cfg.use_worker = "mock"
         self.assertEqual(r.candidates("judge"), ["mock"])
 
 

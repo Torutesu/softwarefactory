@@ -7,7 +7,6 @@
 """
 from __future__ import annotations
 
-import json
 import os
 import re
 import signal
@@ -18,9 +17,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Optional
 
-from ..holdout import Scenario, load_scenarios
+from .. import holdout as holdout_mod
+from ..holdout import load_scenarios
 from ..state import Factory, Mission
-from ..util import child_env, load_json, run_shell
+from ..util import load_json, run_shell, scrubbed_env
 
 
 @dataclass
@@ -31,6 +31,7 @@ class StepResult:
     code: int
     tail: str = ""
     seconds: float = 0.0
+    timed_out: bool = False
 
 
 @dataclass
@@ -51,6 +52,7 @@ class HarnessResult:
     health_ok: bool = True
     scenarios: List[ScenarioResult] = field(default_factory=list)
     warnings: List[str] = field(default_factory=list)
+    holdout_tampered: bool = False  # 検証の前後でシナリオ一式が記録と食い違った
 
     @property
     def all_scenarios_ok(self) -> bool:
@@ -66,6 +68,8 @@ class HarnessResult:
 
     @property
     def ok(self) -> bool:
+        if self.holdout_tampered:
+            return False
         if self.build and not self.build.ok:
             return False
         if self.test and not self.test.ok:
@@ -87,19 +91,22 @@ class HarnessResult:
                 for x in self.scenarios
             ],
             "all_scenarios_ok": self.all_scenarios_ok,
+            "holdout_tampered": self.holdout_tampered,
             "base_score": self.base_score,
             "warnings": self.warnings,
         }
 
 
-def _shell(cmd: str, cwd: Path, port: Optional[int] = None, timeout: int = 600, env_extra: Optional[dict] = None) -> StepResult:
+def _shell(cmd: str, cwd: Path, port: Optional[int] = None, timeout: int = 600,
+           env_extra: Optional[dict] = None, passthrough=()) -> StepResult:
     t0 = time.time()
-    env = child_env({
+    # LLM が書いたコードを動かすので、API キー・トークン類は渡さない (passthrough だけ許可)
+    env = scrubbed_env({
         "FACTORY_REPO": str(cwd),
         "FACTORY_PORT": str(port) if port else "",
         "REPO": str(cwd),
         **(env_extra or {}),
-    })
+    }, passthrough=passthrough)
     pr = run_shell(cmd, cwd=cwd, timeout=timeout, env=env)
     return StepResult(
         name="shell",
@@ -108,14 +115,18 @@ def _shell(cmd: str, cwd: Path, port: Optional[int] = None, timeout: int = 600, 
         code=pr.code if not pr.timed_out else 124,
         tail=((pr.out + ("\n--- stderr ---\n" + pr.err if pr.err else ""))[-1500:]),
         seconds=time.time() - t0,
+        timed_out=pr.timed_out,
     )
 
 
-def _check_step(step, cwd: Path, port: Optional[int], holdout_dir) -> StepResult:
+def _check_step(step, cwd: Path, port: Optional[int], holdout_dir, passthrough=()) -> StepResult:
     cwd = Path(cwd)
     holdout_dir = Path(holdout_dir)
-    r = _shell(step.cmd, cwd, port=port, timeout=step.timeout, env_extra={"FACTORY_HOLDOUT_DIR": str(holdout_dir)})
-    ok = r.ok
+    r = _shell(step.cmd, cwd, port=port, timeout=step.timeout,
+               env_extra={"FACTORY_HOLDOUT_DIR": str(holdout_dir)}, passthrough=passthrough)
+    ok = (not r.timed_out) and r.code == int(getattr(step, "expect_exit", 0) or 0)
+    if r.timed_out:
+        r.tail = (r.tail + f"\n[step] {step.timeout}s でタイムアウト")[-1500:]
     if ok and step.expect_contains is not None:
         ok = step.expect_contains in r.tail
     if ok and step.expect_not_contains is not None:
@@ -128,11 +139,14 @@ def _check_step(step, cwd: Path, port: Optional[int], holdout_dir) -> StepResult
 
         from .png import similarity
 
-        got = os.path.expandvars(cmp_spec.get("file", ""))
-        bench = holdout_dir / os.path.expandvars(cmp_spec.get("to", ""))
-        threshold = float(cmp_spec.get("ratio", 0.85))
-        if not (os.path.isabs(got) and os.path.exists(got)) and not os.path.exists(got):
-            got = os.path.join(str(cwd), cmp_spec.get("file", ""))
+        got = os.path.expandvars(str(cmp_spec.get("file", "")))
+        bench = holdout_dir / os.path.expandvars(str(cmp_spec.get("to", "")))
+        try:
+            threshold = float(cmp_spec.get("ratio", 0.85))
+        except (TypeError, ValueError):
+            threshold = 0.85
+        if not os.path.isabs(got):
+            got = os.path.join(str(cwd), got)  # 相対パスは作業ディレクトリ基準 (CLI の cwd ではない)
         if not os.path.exists(got):
             r.tail = (r.tail + f"\n[png-similar] 画像が見つかりません: {got}")[-1500:]
             ok = False
@@ -141,7 +155,7 @@ def _check_step(step, cwd: Path, port: Optional[int], holdout_dir) -> StepResult
             ok = False
         else:
             try:
-                score = similarity(got, str(bench), grid=int(cmp_spec.get("grid", 64)))
+                score = similarity(got, str(bench), grid=max(1, int(cmp_spec.get("grid", 64))))
             except Exception as e:
                 score = 0.0
                 r.tail = (r.tail + f"\n[png-similar] 比較エラー: {e}")[-1500:]
@@ -196,15 +210,35 @@ def _port_busy(port: int) -> bool:
             return True
 
 
-def _pick_port(preferred: int) -> int:
-    """preferred が空いていなければ空きポートを返す (並列ミッションの衝突回避)。"""
+_PORT_LOCK = __import__("threading").Lock()
+_RESERVED_PORTS: set = set()
+
+
+def _pick_port(preferred: Optional[int]) -> int:
+    """空きポートを予約して返す (release_port で解放)。
+
+    run-all --parallel / tick の並列ミッションは同じプロセスのスレッドなので、
+    「空いているか確認 → サーバが bind」の間に別ミッションが同じ番号を選ばないよう予約表で守る。
+    """
     import socket
 
-    if not _port_busy(preferred):
-        return preferred
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
+    with _PORT_LOCK:
+        if preferred and preferred not in _RESERVED_PORTS and not _port_busy(preferred):
+            _RESERVED_PORTS.add(preferred)
+            return preferred
+        for _ in range(50):
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.bind(("127.0.0.1", 0))
+                port = s.getsockname()[1]
+            if port not in _RESERVED_PORTS:
+                _RESERVED_PORTS.add(port)
+                return port
+        raise RuntimeError("空きポートを確保できません")
+
+
+def release_port(port: Optional[int]) -> None:
+    with _PORT_LOCK:
+        _RESERVED_PORTS.discard(port)
 
 
 def _apply_port(url: str, port: int) -> str:
@@ -212,70 +246,144 @@ def _apply_port(url: str, port: int) -> str:
     return re.sub(r"(127\.0\.0\.1|localhost):\d+", lambda m: f"{m.group(1)}:{port}", url, count=1)
 
 
-def evaluate(factory: Factory, m: Mission, wt: Path, judge: bool = True) -> HarnessResult:
-    """現在の worktree を検証し、結果を返す。"""
+def _stop_service(proc) -> None:
+    """run で起動したサービスのプロセスグループを止める (TERM → 5 秒待って KILL)。"""
+    if not proc:
+        return
+    try:
+        pgid = os.getpgid(proc.pid)
+    except OSError:
+        pgid = None
+    for sig in (signal.SIGTERM, signal.SIGKILL):
+        try:
+            if pgid is not None:
+                os.killpg(pgid, sig)
+            else:
+                proc.send_signal(sig)
+        except (OSError, ProcessLookupError):
+            pass
+        try:
+            proc.wait(timeout=5)
+            return
+        except subprocess.TimeoutExpired:
+            continue
+
+
+def evaluate(factory: Factory, m: Mission, wt: Path, judge: bool = True, env_passthrough=(),
+             allow_record: bool = True) -> HarnessResult:
+    """現在の worktree を検証し、結果を返す。
+
+    ワーカーが書いたコード (build/test/run) を動かす前にシナリオを照合・スナップショットし、
+    実行中は holdout を封印する。シナリオはスナップショットから実行する。
+    """
+    import shutil
+
     build = _load_build(factory, m)
     hr = HarnessResult()
     cwd = wt / build["project_subdir"] if build["project_subdir"] else wt
 
+    # 中断で封印 (000) が残っていたら戻す (dev ワーカーが走っていない検証の入口でだけ呼ばれる)
+    holdout_mod.unseal_if_stale(factory, m.id)
+    state = holdout_mod.verify_manifest(factory, m.id)
+    if state == "unrecorded" and not allow_record:
+        # dev ループ中は dev 開始前に必ず記録している。無くなっているのは消された疑い
+        state = "tampered"
+    if state == "tampered":
+        hr.holdout_tampered = True
+        hr.warnings.append("holdout シナリオが記録時の指紋と一致しません (改ざんの疑い)。検証を中止")
+        return hr
+    if state == "unrecorded":
+        holdout_mod.record_manifest(factory, m.id)
+        hr.warnings.append("holdout の指紋が未記録だったため現状を記録しました")
+    snap = holdout_mod.snapshot(factory, m.id)
+    scenarios = load_scenarios(factory, m.id, base=snap) if snap else []
+    try:
+        with holdout_mod.sealed(factory, m.id):
+            _evaluate_sealed(hr, build, cwd, m, scenarios, snap, env_passthrough,
+                             real_holdout=factory.holdout_dir_for(m.id))
+    finally:
+        if snap:
+            shutil.rmtree(snap, ignore_errors=True)
+    if state != "missing" and holdout_mod.verify_manifest(factory, m.id) == "tampered":
+        hr.holdout_tampered = True
+        hr.warnings.append("検証中に holdout シナリオが書き換えられました (改ざんの疑い)")
+    return hr
+
+
+def _evaluate_sealed(hr: HarnessResult, build: dict, cwd: Path, m: Mission, scenarios, snap,
+                     passthrough, real_holdout: Optional[Path] = None) -> None:
+    if snap and real_holdout:
+        # 生成された step が holdout の絶対パスを直接書いていても、封印中の本体ではなく
+        # スナップショットを読むようにする ($FACTORY_HOLDOUT_DIR を使うのが正式)
+        for sc in scenarios:
+            for st in getattr(sc, "steps", []):
+                for src in {str(real_holdout), str(Path(real_holdout).resolve())}:
+                    st.cmd = st.cmd.replace(src, str(snap))
     if build["build"]:
-        hr.build = _shell(build["build"], cwd, timeout=build["step_timeout_s"])
+        hr.build = _shell(build["build"], cwd, timeout=build["step_timeout_s"], passthrough=passthrough)
         if not hr.build.ok:
             hr.warnings.append("build に失敗したため test/run をスキップ")
-            return hr
+            return
     if build["test"]:
-        hr.test = _shell(build["test"], cwd, timeout=build["step_timeout_s"])
+        hr.test = _shell(build["test"], cwd, timeout=build["step_timeout_s"], passthrough=passthrough)
         if not hr.test.ok:
             hr.warnings.append("test に失敗したためシナリオ検証を続行 (結果には反映)")
 
-    scenarios = load_scenarios(factory, m.id)
     needs_service = bool(build["run"]) and any(sc.steps for sc in scenarios)
     proc = None
     port = None
-    if needs_service:
-        try:
-            port = _resolve_port(build["health_url"] or "")
-            if port is None:
-                port = 8765 + (int(m.id[-2:], 16) % 100)
-            port = _pick_port(port)
-            env = child_env({"FACTORY_PORT": str(port), "FACTORY_REPO": str(cwd)})
-            proc = subprocess.Popen(
-                ["/bin/bash", "-lc", build["run"]],
-                cwd=str(cwd), env=env,
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                start_new_session=True,
-            )
-            hr.service_started = True
-            if build["health_url"]:
-                url = _apply_port(build["health_url"].replace("${FACTORY_PORT}", str(port)), port)
-                hr.health_ok = _wait_health(url, timeout=build["wait_s"])
-                if not hr.health_ok:
-                    hr.warnings.append(f"health_url が起動しませんでした: {url}")
-            else:
-                hr.service_started = True
-        except Exception as e:
-            hr.warnings.append(f"service 起動失敗: {e}")
-
     try:
-        hdir = factory.holdout_dir_for(m.id)
-        for sc in scenarios:
-            steps = []
-            ok = True
-            t0 = time.time()
-            for st in sc.steps:
-                sr = _check_step(st, cwd, port, hdir)
-                steps.append(sr)
-                if not sr.ok:
-                    ok = False
-            hr.scenarios.append(ScenarioResult(
-                id=sc.id, title=sc.title, ok=ok, weight=sc.weight, steps=steps, seconds=time.time() - t0))
+        if needs_service:
+            proc, port = _start_service(hr, build, cwd, passthrough)
+        _run_scenarios(hr, scenarios, cwd, port, snap, passthrough)
     finally:
-        if proc:
-            try:
-                os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
-            except Exception:
-                try:
-                    proc.terminate()
-                except Exception:
-                    pass
-    return hr
+        # health 待ち中・シナリオ中の Ctrl-C / 例外でもサービスとポート予約を残さない
+        _stop_service(proc)
+        release_port(port)
+
+
+def _start_service(hr: HarnessResult, build: dict, cwd: Path, passthrough):
+    """build.json の run を起動して health を待つ。戻り値 (proc, port)。"""
+    port = _pick_port(_resolve_port(build["health_url"] or ""))
+    proc = None
+    try:
+        env = scrubbed_env({"FACTORY_PORT": str(port), "FACTORY_REPO": str(cwd)}, passthrough=passthrough)
+        proc = subprocess.Popen(
+            ["/bin/bash", "-lc", build["run"]],
+            cwd=str(cwd), env=env,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        hr.service_started = True
+        if build["health_url"]:
+            url = _apply_port(build["health_url"].replace("${FACTORY_PORT}", str(port)), port)
+            hr.health_ok = _wait_health(url, timeout=build["wait_s"])
+            if not hr.health_ok:
+                hr.warnings.append(f"health_url が起動しませんでした: {url}")
+    except Exception as e:
+        hr.warnings.append(f"service 起動失敗: {e}")
+    except BaseException:
+        _stop_service(proc)
+        release_port(port)
+        raise
+    return proc, port
+
+
+def _run_scenarios(hr: HarnessResult, scenarios, cwd: Path, port, snap, passthrough) -> None:
+    for sc in scenarios:
+        if getattr(sc, "invalid", ""):
+            hr.scenarios.append(ScenarioResult(
+                id=sc.id, title=sc.title, ok=False, weight=sc.weight,
+                steps=[StepResult(name="load", cmd="(scenario file)", ok=False, code=2, tail=sc.invalid)]))
+            hr.warnings.append(f"不正なシナリオファイル: {sc.id}")
+            continue
+        steps = []
+        ok = True
+        t0 = time.time()
+        for st in sc.steps:
+            sr = _check_step(st, cwd, port, snap, passthrough=passthrough)
+            steps.append(sr)
+            if not sr.ok:
+                ok = False
+        hr.scenarios.append(ScenarioResult(
+            id=sc.id, title=sc.title, ok=ok, weight=sc.weight, steps=steps, seconds=time.time() - t0))

@@ -75,7 +75,13 @@ def create_worktree(repo: Path, wt_path: Path, branch: str = "", detached: bool 
     """worktree を作る。既存があれば再利用。branch を省略か detached=True で detach。"""
     wt_path = Path(wt_path)
     if wt_path.exists() and (wt_path / ".git").exists():
-        return wt_path
+        # 中断や競合で HEAD の無い (unborn) worktree が残っていると永久に失敗するので作り直す。
+        # 「本当に unborn」(rev-parse が 128 かつ HEAD がブランチを指している) のときだけ。
+        # タイムアウト (124) や停止要求 (130) で作業中の worktree を消さない
+        r = _git(wt_path, "rev-parse", "--verify", "HEAD")
+        if r.code != 128 or _git(wt_path, "symbolic-ref", "HEAD").code != 0:
+            return wt_path
+        _git(repo, "worktree", "remove", "--force", str(wt_path))
     # ゴミ掃除 (パスが残っているが worktree が無い場合)
     _git(repo, "worktree", "prune")
     if wt_path.exists():
@@ -90,6 +96,52 @@ def create_worktree(repo: Path, wt_path: Path, branch: str = "", detached: bool 
     if r.code != 0:
         raise RuntimeError("worktree add failed: " + (r.err or r.out))
     return wt_path
+
+
+def main_branch_for(cfg, m, repo: Path) -> str:
+    """projects.<p>.main_branch を返す (ミッションの repo が登録外 / そのブランチが無いなら checkout 中)。"""
+    try:
+        target = Path(repo).resolve()
+        for pc in (getattr(cfg, "projects", None) or {}).values():
+            p = Path(pc.path)
+            p = p if p.is_absolute() else Path(cfg.root) / p
+            if p.resolve() == target and pc.main_branch and branch_exists(repo, pc.main_branch):
+                return pc.main_branch
+    except OSError:
+        pass
+    return default_branch(repo)
+
+
+_DIFF_EXCLUDES = (":(exclude,glob)**/*.lock", ":(exclude,glob)**/package-lock.json", ":(exclude,glob)**/*.min.js",
+                  ":(exclude,glob)**/__pycache__/**", ":(exclude,glob)**/*.pyc")
+
+
+def diff_summary(wt: Path, base: str, max_chars: int = 4000) -> str:
+    """judge 用: base (main) からの実際の変更 (コミット済み + 未コミット) の要約。
+
+    --stat と先頭の hunk を max_chars まで。lock/生成物は除外。差分が無ければ空文字。
+    """
+    wt = Path(wt)
+    mb = _git(wt, "merge-base", base, "HEAD")
+    start = mb.out.strip() if mb.code == 0 and mb.out.strip() else base
+    stat = _git(wt, "diff", "--stat", "--no-renames", start, "--", ".", *_DIFF_EXCLUDES)
+    if stat.code != 0 or not stat.out.strip():
+        return ""
+    body = _git(wt, "diff", "--no-renames", "-U2", start, "--", ".", *_DIFF_EXCLUDES).out
+    text = stat.out.strip() + "\n\n" + body
+    if len(text) > max_chars:
+        text = text[:max_chars] + f"\n... (以下省略: 全 {len(text)} 文字)"
+    return text
+
+
+def repo_lock(repo: Path, lock_dir: Path):
+    """repo 単位の排他 (baseline コミット作成と worktree 追加を並列ミッション間で直列化)。"""
+    import hashlib
+
+    from .util import locked
+
+    key = hashlib.sha1(str(Path(repo).resolve()).encode("utf-8")).hexdigest()[:16]
+    return locked(Path(lock_dir) / f"repo-{key}")
 
 
 def remove_worktree(repo: Path, wt_path: Path, force: bool = True) -> None:
@@ -180,13 +232,35 @@ def changed_files(wt: Path, base: str = "HEAD") -> list:
     return [l for l in r.out.splitlines() if l.strip()]
 
 
-def merge_squash(repo: Path, branch: str, message: str) -> ProcResult:
-    """squash マージを試みる。競合時はコード 1 を返す。"""
+def tracked_dirty(repo: Path) -> str:
+    """追跡ファイルの未コミット変更 (staged/unstaged) と未解決の競合。未追跡は含めない。"""
+    r = _git(repo, "status", "--porcelain", "--untracked-files=no")
+    return r.out.strip() if r.code == 0 else "(git status failed)"
+
+
+def merge_squash(repo: Path, branch: str, message: str, target_branch: str = "") -> ProcResult:
+    """squash マージを試みる。失敗したら main repo を元の状態に戻してコード != 0 を返す。
+
+    - 追跡ファイルに未コミット変更がある repo には触らない (人間の作業中の変更を factory の
+      コミットに巻き込まない / 競合後の巻き戻しで消さない)
+    - target_branch を渡すと、checkout 中のブランチがそれと違うときは拒否する
+    - `merge --squash` は MERGE_HEAD を作らないので `merge --abort` では戻らない。
+      事前に clean を確認しているので `reset --hard HEAD` で競合状態を確実に戻す
+    """
+    dirty = tracked_dirty(repo)
+    if dirty:
+        return ProcResult(1, "", "main repo に未コミットの変更があるためマージしません:\n" + dirty[:500], 0.0)
+    if target_branch:
+        cur = default_branch(repo)
+        if cur != target_branch:
+            return ProcResult(1, "", f"main repo の checkout が {cur} です ({target_branch} であること)", 0.0)
     r = _git(repo, "merge", "--squash", branch)
     if r.code != 0:
-        _git(repo, "merge", "--abort")
+        _git(repo, "reset", "--hard", "HEAD")
         return r
     r2 = _git(repo, "commit", "-m", message)
+    if r2.code != 0:
+        _git(repo, "reset", "--hard", "HEAD")  # 空の squash 等: 半端な index を残さない
     return r2
 
 
@@ -206,31 +280,40 @@ def remote_url(repo: Path, name: str = "origin") -> Optional[str]:
 def branch_changes(repo: Path, branch: str, base: str = "") -> dict:
     """ブランチの base からの変更統計を返す。
 
-    戻り値: {"files": int, "lines": int, "paths": [str]}
+    戻り値: {"files": int, "lines": int, "paths": [str], "binary": [str], "deleted": [str]}
     マージゲートの blast radius 分類 (mergegate.py) で使う。
     merge-base 基準 (3-dot) なので、base 側が進んでいても逆差分を数えない。
     """
+    empty = {"files": 0, "lines": 0, "paths": [], "binary": [], "deleted": []}
     if not branch_exists(repo, branch) or not has_commits(repo):
-        return {"files": 0, "lines": 0, "paths": []}
+        return empty
     base = base or default_branch(repo)
-    r = _git(repo, "diff", "--numstat", f"{base}...{branch}")
+    rng = f"{base}...{branch}"
+    r = _git(repo, "diff", "--numstat", "--no-renames", rng)
     if r.code != 0:
-        r = _git(repo, "diff", "--numstat", f"{base}..{branch}")
+        rng = f"{base}..{branch}"
+        r = _git(repo, "diff", "--numstat", "--no-renames", rng)
         if r.code != 0:
-            return {"files": 0, "lines": 0, "paths": []}
-    files, lines, paths = 0, 0, []
+            return empty
+    files, lines, paths, binary = 0, 0, [], []
     for ln in (r.out or "").splitlines():
         if not ln.strip():
             continue
         added, _, rest = ln.partition("\t")
         deleted, _, path = rest.partition("\t")
-        paths.append(path.strip())
+        path = path.strip()
+        paths.append(path)
         files += 1
+        if added == "-" and deleted == "-":
+            binary.append(path)  # 行数に出ないので「小さい差分」に見せかけられないよう別枠で返す
         if added.isdigit():
             lines += int(added)
         if deleted.isdigit():
             lines += int(deleted)
-    return {"files": files, "lines": lines, "paths": paths}
+    ns = _git(repo, "diff", "--name-status", "--no-renames", rng)
+    removed = [ln.split("\t", 1)[1].strip() for ln in (ns.out or "").splitlines()
+               if ln.startswith("D\t")] if ns.code == 0 else []
+    return {"files": files, "lines": lines, "paths": paths, "binary": binary, "deleted": removed}
 
 
 def seed_worktree_files(repo, wt, patterns=None):

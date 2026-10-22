@@ -15,9 +15,10 @@
 """
 from __future__ import annotations
 
+import fnmatch
 import re
 from collections import Counter
-from typing import List, Optional
+from typing import Optional
 
 from . import gitx
 from .config import Config
@@ -47,6 +48,25 @@ def _is_meta(path: str) -> bool:
             or name in _META_NAMES)
 
 
+def _is_test_path(path: str) -> bool:
+    pl = path.lower()
+    name = pl.rsplit("/", 1)[-1]
+    return (pl.startswith(("tests/", "test/")) or "/tests/" in pl or "/test/" in pl
+            or name.startswith("test_") or name.endswith(("_test.py", ".test.js", ".test.ts", ".spec.ts", ".spec.js")))
+
+
+def protected_matches(paths, patterns) -> list:
+    """protected_paths (glob) に当たるパス。`**/x` はルート直下の x にも当たる。"""
+    out = []
+    for p in paths:
+        pl = p.replace("\\", "/")
+        for pat in patterns or []:
+            if fnmatch.fnmatch(pl, pat) or (pat.startswith("**/") and fnmatch.fnmatch(pl, pat[3:])):
+                out.append(p)
+                break
+    return sorted(set(out))
+
+
 def classify(cfg: Config, repo, branch: str, m: Mission) -> dict:
     """factory/<id> ブランチの差分からティアを分類する。
 
@@ -65,10 +85,22 @@ def classify(cfg: Config, repo, branch: str, m: Mission) -> dict:
     patterns = [p for p in (getattr(cfg, "sensitive_paths", None) or []) if p]
     sensitive = sorted({p for p in paths
                         if any(re.search(pat, p, re.IGNORECASE) for pat in patterns)})
+    # CI・ビルド・テスト基盤 (protected_paths) に触れる差分は、self-hosted runner で動く内容や
+    # 合否判定そのものを変えられるので sensitive 扱い
+    protected = protected_matches(paths, getattr(cfg, "protected_paths", None) or [])
+    removed_tests = [p for p in ch.get("deleted", []) if _is_test_path(p)]
+    binary = list(ch.get("binary", []))
+    reasons = []
+    if protected:
+        reasons.append("protected: " + ", ".join(protected[:3]))
+    if removed_tests:
+        reasons.append("テスト削除: " + ", ".join(removed_tests[:3]))
+    if binary:
+        reasons.append("バイナリ: " + ", ".join(binary[:3]))
     small = max(0, int(getattr(cfg, "small_change_lines", 50) or 0))
-    if sensitive:
+    if sensitive or protected:
         tier = "sensitive"
-    elif m.kind == "greenfield" or ch["lines"] > small:
+    elif m.kind == "greenfield" or ch["lines"] > small or removed_tests or binary:
         tier = "behavioral"
     elif paths and all(_is_meta(p) for p in paths):
         tier = "mechanical"
@@ -79,7 +111,8 @@ def classify(cfg: Config, repo, branch: str, m: Mission) -> dict:
         "files": ch["files"],
         "lines": ch["lines"],
         "paths": paths,
-        "sensitive_matches": sensitive,
+        "sensitive_matches": sorted(set(sensitive) | set(protected)),
+        "reasons": reasons,
         "review": REVIEW_SUGGESTION.get(tier, REVIEW_SUGGESTION["scoped"]),
     }
 
@@ -90,6 +123,9 @@ def describe(cls: dict) -> str:
     sm = cls.get("sensitive_matches") or []
     if sm:
         bits.append("sensitive: " + ", ".join(sm[:3]) + ("..." if len(sm) > 3 else ""))
+    for r in cls.get("reasons") or []:
+        if not r.startswith("protected:"):
+            bits.append(r)
     return " ".join(bits)
 
 

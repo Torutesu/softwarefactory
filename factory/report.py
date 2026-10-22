@@ -6,7 +6,6 @@ from typing import List, Optional
 
 from .harness.runner import HarnessResult
 from .state import Factory, Iteration, Mission, mission_cost_usd
-from .util import save_text
 
 
 def iter_report(
@@ -46,18 +45,19 @@ def iter_report(
     for s in hr.scenarios:
         lines.append(f"| {s.id} | {'✅ PASS' if s.ok else '❌ FAIL'} | {s.seconds:.1f}s | {s.title} |")
     lines.append("")
-    failed_steps = []
-    for s in hr.scenarios:
-        for st in s.steps:
-            if not st.ok:
-                failed_steps.append((s.id, st.name, st.cmd, st.tail))
-    if failed_steps:
-        lines.append("### 失敗ステップの詳細")
-        for sid, name, cmd, tl in failed_steps[:8]:
-            lines.append(f"- **{sid}/{name}**: `{cmd[:120]}`")
-            lines.append("```")
-            lines.append(tl[-600:])
-            lines.append("```")
+    # 失敗ステップのコマンドと出力はシナリオの中身そのもの。missions/<id>/ は worktree の親で
+    # 実装 Worker から読めるので、詳細は holdout 側 (dev 中は封印される) にだけ書く
+    detail = scenario_failure_detail(hr)
+    if detail:
+        from . import holdout as holdout_mod
+
+        dst = holdout_mod.runs_dir(factory, m.id) / run_dir.name / f"iter-{it.n}.md"
+        try:
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            dst.write_text(detail, encoding="utf-8")
+            lines.append(f"失敗ステップの詳細は holdout 側に保存 (実装 Worker からは見えない): `{dst}`")
+        except OSError:
+            lines.append("失敗ステップの詳細: holdout 側への保存に失敗")
         lines.append("")
 
     if judge_data:
@@ -75,6 +75,15 @@ def iter_report(
         lines.append("```")
 
     return "\n".join(lines)
+
+
+def scenario_failure_detail(hr: HarnessResult) -> str:
+    rows = []
+    for s in hr.scenarios:
+        for st in s.steps:
+            if not st.ok:
+                rows.append(f"- **{s.id}/{st.name}**: `{st.cmd[:200]}`\n```\n{st.tail[-800:]}\n```")
+    return ("# 失敗ステップの詳細\n\n" + "\n".join(rows[:12]) + "\n") if rows else ""
 
 
 def final_report(

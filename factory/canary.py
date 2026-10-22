@@ -16,7 +16,7 @@ from typing import Optional
 
 from . import gitx
 from .harness.runner import evaluate
-from .state import Factory, Mission
+from .state import Factory, Mission, is_merged
 from .util import now_utc_iso, save_text
 
 
@@ -28,18 +28,21 @@ def run_canary(factory: Factory, mid: str, cfg=None, fix: bool = False, run_comp
     m = factory.get_mission(mid)
     if not m:
         raise SystemExit(f"mission not found: {mid}")
-    if m.status != "done" or "merged to main" not in (m.notes or ""):
+    if m.status != "done" or not is_merged(m):
         raise SystemExit(f"{mid} は merge 済みミッションではありません (status={m.status})")
 
     repo = _repo_path(factory, m)
-    default = gitx.default_branch(repo)
+    default = gitx.main_branch_for(cfg, m, repo) if cfg else gitx.default_branch(repo)
     stamp = dt.datetime.now().strftime("%Y%m%d-%H%M%S")
     cwt = factory.mission_dir(mid) / "canary"
+    # 中断で残った古い canary worktree (昔の main) を再利用しない
+    gitx.remove_worktree(repo, cwt, force=True)
     gitx.create_worktree(repo, cwt, detached=True, branch=default)
     # カナリアも空の checkout。.env 等がないと build/run が偽失敗する
     gitx.seed_worktree_files(repo, cwt, getattr(cfg, "worktree_copy", None) if cfg else None)
     try:
-        hr = evaluate(factory, m, cwt)
+        hr = evaluate(factory, m, cwt,
+                      env_passthrough=getattr(cfg, "harness_env_passthrough", ()) if cfg else ())
     finally:
         gitx.remove_worktree(repo, cwt, force=True)
 
@@ -64,6 +67,11 @@ def run_canary(factory: Factory, mid: str, cfg=None, fix: bool = False, run_comp
     report_path = run_dir / f"canary-{stamp}.md"
     save_text(report_path, "\n".join(report_lines))
 
+    if hr.holdout_tampered:
+        # 製品の失敗ではなく検証基盤の問題。main を revert したり修復ミッションを作ったりしない
+        factory.event("canary_escalate", f"{mid}: holdout tampered")
+        print(f"[canary] {mid}: holdout シナリオの指紋が一致しないため判定不能 (needs_human)")
+        return {"status": "escalate", "report": str(report_path), "reason": "holdout_tampered"}
     if hr.ok:
         factory.event("canary_pass", mid)
         print(f"[canary] {mid}: PASS on main")
@@ -75,7 +83,13 @@ def run_canary(factory: Factory, mid: str, cfg=None, fix: bool = False, run_comp
 
     if fix:
         result["revert"] = _try_revert(factory, repo, mid)
-        result["new_mission"] = _reseed_failure(factory, m, hr)
+        # revert できなかった (dirty/競合/コミット不明) のに修復ミッションを作ると、壊れた main の上で
+        # 無関係な修正を始めてしまう。取り消せた (または取り消し済み) ときだけ再挑戦する
+        if result["revert"].startswith(("reverted", "already-reverted")):
+            result["new_mission"] = _reseed_failure(factory, m, hr)
+        else:
+            result["new_mission"] = None
+            factory.event("canary_revert_failed", f"{mid}: {result['revert'][:200]}")
         new_mid = result["new_mission"]
         if new_mid and run_complete:
             try:
@@ -145,6 +159,8 @@ def _reseed_failure(factory: Factory, m: Mission, hr) -> Optional[str]:
         pass_score=m.pass_score,
         notes=f"auto-created by canary repair-of:{m.id}",
     )
+    new_m.repair_of = m.id
+    factory.save_mission(new_m)
     print(f"[canary] 再ミッション: {new_m.id}")
     return new_m.id
 

@@ -12,6 +12,7 @@ from typing import List, Tuple
 
 GRID = 64
 
+MAX_PIXELS = 40_000_000  # 展開後のメモリ上限の目安 (RGBA で ~160MB)
 _PNG_SIG = b"\x89PNG\r\n\x1a\n"
 
 
@@ -59,9 +60,14 @@ def decode_png(data: bytes) -> PngImage:
     plte = None
     idat = bytearray()
     while pos < len(buf):
-        tag, chunk, pos = _read_chunk(buf, pos)
+        try:
+            tag, chunk, pos = _read_chunk(buf, pos)
+            if tag == b"IHDR":
+                width, height, bit_depth, color_type, _, _, interlace = struct.unpack(">IIBBBBB", bytes(chunk))
+        except struct.error:
+            raise ValueError("broken PNG: truncated chunk") from None
         if tag == b"IHDR":
-            width, height, bit_depth, color_type, _, _, interlace = struct.unpack(">IIBBBBB", bytes(chunk))
+            pass
         elif tag == b"PLTE":
             plte = bytes(chunk)
         elif tag == b"IDAT":
@@ -76,9 +82,20 @@ def decode_png(data: bytes) -> PngImage:
         raise ValueError("interlaced PNG is unsupported")
     if color_type not in (0, 2, 3, 6):
         raise ValueError("unsupported color type: %s" % color_type)
+    if width <= 0 or height <= 0:
+        raise ValueError("broken PNG: width/height is 0")
+    if width * height > MAX_PIXELS:
+        raise ValueError("PNG too large: %dx%d (max %d px)" % (width, height, MAX_PIXELS))
+    if color_type == 3 and (not plte or len(plte) % 3):
+        raise ValueError("broken PNG: palette image without valid PLTE")
     channels = {0: 1, 2: 3, 3: 1, 6: 4}[color_type]
     stride = width * channels
-    raw = zlib.decompress(bytes(idat))
+    expected = (stride + 1) * height
+    try:
+        # 展開後サイズの上限付き (圧縮爆弾で メモリを食い潰さない)
+        raw = zlib.decompressobj().decompress(bytes(idat), expected + 1)
+    except zlib.error as e:
+        raise ValueError("broken PNG: %s" % e) from None
     out = bytearray()
     prev = bytearray(stride)
     i = 0
@@ -88,6 +105,8 @@ def decode_png(data: bytes) -> PngImage:
         filt = raw[i]
         i += 1
         row = bytearray(raw[i:i + stride])
+        if len(row) < stride:
+            raise ValueError("broken PNG: truncated scanline")
         i += stride
         _unfilter(filt, row, prev, channels)
         _convert_row(row, channels, color_type, plte, out)
@@ -142,8 +161,12 @@ def _convert_row(row: bytearray, channels: int, color_type: int, plte, out: byte
             g = row[i]
             out.extend(bytes((g, g, g, 255)))
     else:  # palette
+        entries = len(plte) // 3
         for i in range(n):
-            r, g, b = plte[row[i] * 3:row[i] * 3 + 3]
+            idx = row[i]
+            if idx >= entries:
+                raise ValueError("broken PNG: palette index %d out of range" % idx)
+            r, g, b = plte[idx * 3:idx * 3 + 3]
             out.extend(bytes((r, g, b, 255)))
 
 
@@ -178,6 +201,7 @@ def similarity(a_path, b_path, grid: int = GRID) -> float:
 
 
 def similarity_images(aimg: PngImage, bimg: PngImage, grid: int = GRID) -> float:
+    grid = max(1, int(grid))
     ga = _pool(aimg, grid)
     gb = _pool(bimg, grid)
     diff = sum(abs(pa[k] - pb[k]) for ra, rb in zip(ga, gb) for pa, pb in zip(ra, rb) for k in range(3))

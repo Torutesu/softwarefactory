@@ -23,14 +23,17 @@ import json
 import os
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from pathlib import Path
 from typing import Optional
 
 from .ingest import create_from_payload
-from .state import Factory
+from .state import Factory, one_line
 from .util import now_utc_iso
 
 MAX_BODY_BYTES = 1_000_000
+REQUEST_TIMEOUT_S = 15  # 本文を少しずつ送ってスレッドを占有させない
+RESERVED_SEED_FILES = {"seed.md"}
+RESERVED_SEED_DIRS = {"mock"}
+_LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1", "[::1]"}
 SECRET_ENV = "FACTORY_LISTEN_SECRET"
 
 
@@ -41,6 +44,16 @@ def is_loopback(bind: str) -> bool:
         return ipaddress.ip_address(bind).is_loopback
     except ValueError:
         return False
+
+
+def host_allowed(host_header: str, bind: str) -> bool:
+    """secret 無し運用の DNS rebinding 対策: Host がループバック名 (か bind そのもの) のときだけ受ける。"""
+    host = (host_header or "").strip().lower()
+    if host.startswith("["):
+        host = host.split("]", 1)[0] + "]"
+    elif host.count(":") == 1:
+        host = host.split(":", 1)[0]
+    return host in _LOOPBACK_HOSTS or host == bind.lower()
 
 
 def verify_request(secret: str, headers, raw: bytes) -> bool:
@@ -77,34 +90,70 @@ class Listener:
             pass
 
     # ------------------------------------------------------------------
+    @staticmethod
+    def validate(payload: dict) -> dict:
+        """副作用の前に全項目を検証・正規化する (不正なら ValueError → 400。Seed は作らない)。"""
+        title = one_line(payload.get("title") or "untitled signal", 200)
+        body = payload.get("body") or ""
+        if not isinstance(body, str):
+            raise ValueError("body must be a string")
+        source = one_line(payload.get("source") or "webhook", 100)
+        raw_files = payload.get("files") or {}
+        if not isinstance(raw_files, dict):
+            raise ValueError("files must be an object of {name: text}")
+        files = {}
+        for k, v in raw_files.items():
+            raw = str(k).replace("\\", "/")
+            parts = [p for p in raw.split("/") if p not in ("", ".")]
+            # `..` を含む名前は正規化の前に拒否する (x/../mock/... で予約名をすり抜けさせない)。
+            # 大文字小文字を区別しないファイルシステム (macOS APFS 既定) のため比較は casefold
+            if not parts or ".." in parts or raw.startswith("/"):
+                raise ValueError(f"invalid file name: {k!r}")
+            if ("/".join(parts).casefold() in RESERVED_SEED_FILES
+                    or parts[0].casefold() in RESERVED_SEED_DIRS):
+                raise ValueError(f"reserved file name: {k!r}")
+            if not isinstance(v, str):
+                raise ValueError(f"file content must be a string: {k!r}")
+            files[str(k)] = v
+        kind = str(payload.get("kind") or "update")
+        if kind not in ("update", "greenfield"):
+            raise ValueError("kind must be update or greenfield")
+        try:
+            priority = int(payload.get("priority") or 5)
+        except (TypeError, ValueError):
+            raise ValueError("priority must be an integer") from None
+        if not 1 <= priority <= 9:
+            raise ValueError("priority must be 1..9")
+        project = payload.get("project")
+        if project is not None and not isinstance(project, str):
+            raise ValueError("project must be a string")
+        return {"title": title, "body": body, "source": source, "files": files,
+                "kind": kind, "priority": priority, "project": project or ""}
+
     def handle_signal(self, payload: dict) -> dict:
-        title = str(payload.get("title") or "untitled signal")
-        body = str(payload.get("body") or "")
-        source = str(payload.get("source") or "webhook")
-        files = {k: str(v) for k, v in (payload.get("files") or {}).items()}
-        seed_dir = create_from_payload(self.factory, title, body, source, files)
+        p = self.validate(payload)
+        title, source = p["title"], p["source"]
+        project = p["project"] or self.project
+        if self.auto_create and project and project not in (self.cfg.projects or {}):
+            raise ValueError(f"project not registered: {project}")
+        seed_dir = create_from_payload(self.factory, title, p["body"], source, p["files"])
         self.log(f"seed created: {seed_dir.name} (source={source})")
         out = {"ok": True, "seed": seed_dir.name}
 
         if not self.auto_create:
             return out
 
-        project = payload.get("project") or self.project
         if not project:
             self.log("auto-create skipped: project 指定なし")
             out["mission"] = None
             return out
-        repo = self.cfg.projects[project].path if project in (self.cfg.projects or {}) else None
-        if not repo:
-            self.log(f"auto-create skipped: project {project} 未登録")
-            out["mission"] = None
-            return out
+        repo = self.cfg.projects[project].path
         m = self.factory.create_mission(
             title=f"AUTO {title}",
-            kind=str(payload.get("kind") or "update"),
+            kind=p["kind"],
             seed=seed_dir.name,
             repo=repo,
-            priority=int(payload.get("priority") or 5),
+            priority=p["priority"],
             notes=f"auto-created from {source}",
         )
         self.factory.event("signal_auto_mission", f"{m.id} (seed={seed_dir.name})")
@@ -137,6 +186,8 @@ def make_server(factory: Factory, port: int = 8787, bind: str = "127.0.0.1",
     listener = Listener(factory, project=project, auto_create=auto_create, auto_run=auto_run, cfg=cfg)
 
     class Handler(BaseHTTPRequestHandler):
+        timeout = REQUEST_TIMEOUT_S
+
         def do_GET(self):
             if self.path in ("/health", "/signals/health"):
                 return self._json(200, {"ok": True, "auto_create": auto_create, "project": project})
@@ -145,6 +196,16 @@ def make_server(factory: Factory, port: int = 8787, bind: str = "127.0.0.1",
         def do_POST(self):
             if self.path not in ("/signals", "/signal"):
                 return self._json(404, {"error": "not found"})
+            # ブラウザの単純リクエスト (text/plain 等) は preflight なしで送れてしまう (CSRF)。
+            # JSON の Content-Type を必須にすると、別オリジンのページからは preflight が要り、
+            # このサーバは OPTIONS に応じないので届かない
+            ctype = (self.headers.get("Content-Type") or "").split(";", 1)[0].strip().lower()
+            if not secret and ctype != "application/json":
+                # secret があれば署名/Bearer で本人確認できるので Content-Type は問わない
+                return self._json(415, {"error": "Content-Type must be application/json"})
+            if not secret and not host_allowed(self.headers.get("Host") or "", bind):
+                listener.log(f"rejected Host header: {one_line(self.headers.get('Host'), 80)!r}")
+                return self._json(421, {"error": "host not allowed"})
             try:
                 n = int(self.headers.get("Content-Length") or 0)
             except ValueError:
@@ -159,7 +220,7 @@ def make_server(factory: Factory, port: int = 8787, bind: str = "127.0.0.1",
                 return self._json(401, {"error": "unauthorized"})
             try:
                 payload = json.loads(raw.decode("utf-8"))
-            except (json.JSONDecodeError, UnicodeDecodeError):
+            except (json.JSONDecodeError, UnicodeDecodeError, RecursionError):
                 return self._json(400, {"error": "invalid json"})
             if not isinstance(payload, dict):
                 return self._json(400, {"error": "payload must be an object"})
@@ -168,8 +229,8 @@ def make_server(factory: Factory, port: int = 8787, bind: str = "127.0.0.1",
             except ValueError as e:
                 return self._json(400, {"error": str(e)})
             except Exception as e:  # noqa
-                listener.log(f"error: {e}")
-                return self._json(500, {"error": str(e)})
+                listener.log(f"error: {one_line(e, 300)}")
+                return self._json(500, {"error": "internal error"})
             return self._json(200, out)
 
         def _json(self, code, obj):

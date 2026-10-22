@@ -61,6 +61,18 @@ if [ "$uid" = 0 ]; then
   echo "root では実行しないでください (一般ユーザーで登録します)" >&2; exit 1
 fi
 
+# 登録前の自己診断: エラーがあれば無人運転させない (--skip-doctor で省略)
+if [ "$PRINT" = 0 ] && [ "${SKIP_DOCTOR:-0}" = 0 ]; then
+  set +e
+  (cd "$ROOT" && "$REPO/bin/factory" doctor)
+  rc=$?
+  set -e
+  if [ "$rc" -ge 2 ]; then
+    echo "factory doctor がエラーを報告しました。直してから再実行してください (強行するなら SKIP_DOCTOR=1)" >&2
+    exit 1
+  fi
+fi
+
 # launchd の PATH は最小限なので、いまのシェルで見えているワーカー CLI の場所を引き継ぐ
 path_dirs="/usr/bin:/bin:/usr/sbin:/sbin"
 for c in claude codex opencode git python3; do
@@ -93,6 +105,8 @@ plist() {
   echo '  <key>RunAtLoad</key><true/>'
   echo '  <key>KeepAlive</key><true/>'
   echo '  <key>ThrottleInterval</key><integer>60</integer>'
+  # SIGTERM 後、子プロセスを止めてミッションを queued に戻すまでの猶予 (既定 20 秒)
+  echo '  <key>ExitTimeOut</key><integer>45</integer>'
   echo '  <key>ProcessType</key><string>Background</string>'
   echo "  <key>StandardOutPath</key><string>$LOGDIR/${label##*.}.log</string>"
   echo "  <key>StandardErrorPath</key><string>$LOGDIR/${label##*.}.log</string>"

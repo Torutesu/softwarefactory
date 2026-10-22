@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import List
 
 from .state import Factory, Mission
-from .util import load_json, load_text, save_text, tail
+from .util import load_json, load_text, save_text
 from .workers.router import Router
 
 SPEC_TEMPLATE = """\
