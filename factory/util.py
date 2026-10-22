@@ -41,8 +41,32 @@ def load_json(path: Path, default=None):
     try:
         with open(path, "r", encoding="utf-8") as f:
             return json.load(f)
-    except (OSError, json.JSONDecodeError):
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError):
         return default
+
+
+def quarantine_corrupt(path: Path) -> Optional[Path]:
+    """壊れた JSON を <name>.corrupt-<ts> に退避する (次の書き込みで黙って消さないため)。
+
+    ファイルが存在してパースできないときだけ退避し、退避先を返す。
+    """
+    path = Path(path)
+    if not path.is_file():
+        return None
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            json.load(f)
+        return None
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        stamp = dt.datetime.now().strftime("%Y%m%d-%H%M%S")
+        dst = path.with_name(f"{path.name}.corrupt-{stamp}")
+        try:
+            os.replace(path, dst)
+        except OSError:
+            return None
+        return dst
+    except OSError:
+        return None
 
 
 def save_json(path: Path, data) -> None:

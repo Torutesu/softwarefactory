@@ -29,8 +29,8 @@ class ClaudeCodeWorker(Worker):
             args += ["--allowedTools", ",".join(self.cfg.allowed_tools)]
         if self.cfg.disallowed_tools:
             args += ["--disallowedTools", ",".join(self.cfg.disallowed_tools)]
-        max_turns = getattr(self.cfg, "max_turns", None)
-        if max_turns:
+        max_turns = getattr(self.cfg, "max_turns", 0)
+        if max_turns and int(max_turns) > 0:
             args += ["--max-turns", str(max_turns)]
         args += list(self.cfg.args or [])
         return args

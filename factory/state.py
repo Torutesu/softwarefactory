@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Optional
 
-from .util import load_json, locked, now_utc_iso, save_json
+from .util import load_json, locked, now_utc_iso, quarantine_corrupt, save_json
 
 STATUSES = ["queued", "spec", "holdout", "dev", "done", "failed", "blocked"]
 # dev 以降の実行は spec / holdout がそろっている必要がある
@@ -71,8 +71,12 @@ class Mission:
 
     @classmethod
     def from_dict(cls, d: dict) -> "Mission":
-        iters = [Iteration(**it) for it in d.pop("iterations", [])]
-        m = cls(**d)
+        """未知のキーは無視する (新しい版が書いた mission.json を古い版でも読めるように)。"""
+        d = dict(d)
+        it_fields = set(Iteration.__dataclass_fields__)
+        iters = [Iteration(**{k: v for k, v in it.items() if k in it_fields})
+                 for it in (d.pop("iterations", None) or []) if isinstance(it, dict)]
+        m = cls(**{k: v for k, v in d.items() if k in cls.__dataclass_fields__})
         m.iterations = iters
         return m
 
@@ -180,7 +184,20 @@ class Factory:
 
     # ---------- state -------------------------------------------------
     def state(self) -> dict:
-        return load_json(self.state_file, {"version": 1, "missions": {}, "signals": [], "events": []})
+        st = load_json(self.state_file, None)
+        if st is None:
+            # 壊れていたら退避してから空で始める (退避せずに次の save で上書きすると履歴が消える)
+            moved = quarantine_corrupt(self.state_file)
+            if moved:
+                print(f"[state] 壊れた state.json を {moved.name} に退避しました", flush=True)
+            st = {}
+        if not isinstance(st, dict):
+            st = {}
+        st.setdefault("version", 1)
+        st.setdefault("missions", {})
+        st.setdefault("signals", [])
+        st.setdefault("events", [])
+        return st
 
     def save_state(self, st: dict) -> None:
         save_json(self.state_file, st)
@@ -271,7 +288,16 @@ class Factory:
             return None
         p = self.mission_dir(mid) / "mission.json"
         d = load_json(p)
-        return Mission.from_dict(d) if d else None
+        if d is None and p.is_file():
+            print(f"[state] {p} を読めません (JSON 不正)。手で直すか削除してください", flush=True)
+            return None
+        if not isinstance(d, dict) or not d:
+            return None
+        try:
+            return Mission.from_dict(d)
+        except (TypeError, ValueError) as e:
+            print(f"[state] {p} の形式が不正です: {e}", flush=True)
+            return None
 
     def list_missions(self) -> List[Mission]:
         out = []

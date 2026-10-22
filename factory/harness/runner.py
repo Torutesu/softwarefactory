@@ -210,15 +210,35 @@ def _port_busy(port: int) -> bool:
             return True
 
 
-def _pick_port(preferred: int) -> int:
-    """preferred が空いていなければ空きポートを返す (並列ミッションの衝突回避)。"""
+_PORT_LOCK = __import__("threading").Lock()
+_RESERVED_PORTS: set = set()
+
+
+def _pick_port(preferred: Optional[int]) -> int:
+    """空きポートを予約して返す (release_port で解放)。
+
+    run-all --parallel / tick の並列ミッションは同じプロセスのスレッドなので、
+    「空いているか確認 → サーバが bind」の間に別ミッションが同じ番号を選ばないよう予約表で守る。
+    """
     import socket
 
-    if not _port_busy(preferred):
-        return preferred
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
+    with _PORT_LOCK:
+        if preferred and preferred not in _RESERVED_PORTS and not _port_busy(preferred):
+            _RESERVED_PORTS.add(preferred)
+            return preferred
+        for _ in range(50):
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.bind(("127.0.0.1", 0))
+                port = s.getsockname()[1]
+            if port not in _RESERVED_PORTS:
+                _RESERVED_PORTS.add(port)
+                return port
+        raise RuntimeError("空きポートを確保できません")
+
+
+def release_port(port: Optional[int]) -> None:
+    with _PORT_LOCK:
+        _RESERVED_PORTS.discard(port)
 
 
 def _apply_port(url: str, port: int) -> str:
@@ -302,45 +322,58 @@ def _evaluate_sealed(hr: HarnessResult, build: dict, cwd: Path, m: Mission, scen
     needs_service = bool(build["run"]) and any(sc.steps for sc in scenarios)
     proc = None
     port = None
-    if needs_service:
-        try:
-            port = _resolve_port(build["health_url"] or "")
-            if port is None:
-                port = 8765 + (int(m.id[-2:], 16) % 100)
-            port = _pick_port(port)
-            env = scrubbed_env({"FACTORY_PORT": str(port), "FACTORY_REPO": str(cwd)}, passthrough=passthrough)
-            proc = subprocess.Popen(
-                ["/bin/bash", "-lc", build["run"]],
-                cwd=str(cwd), env=env,
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                start_new_session=True,
-            )
-            hr.service_started = True
-            if build["health_url"]:
-                url = _apply_port(build["health_url"].replace("${FACTORY_PORT}", str(port)), port)
-                hr.health_ok = _wait_health(url, timeout=build["wait_s"])
-                if not hr.health_ok:
-                    hr.warnings.append(f"health_url が起動しませんでした: {url}")
-        except Exception as e:
-            hr.warnings.append(f"service 起動失敗: {e}")
-
     try:
-        for sc in scenarios:
-            if getattr(sc, "invalid", ""):
-                hr.scenarios.append(ScenarioResult(
-                    id=sc.id, title=sc.title, ok=False, weight=sc.weight,
-                    steps=[StepResult(name="load", cmd="(scenario file)", ok=False, code=2, tail=sc.invalid)]))
-                hr.warnings.append(f"不正なシナリオファイル: {sc.id}")
-                continue
-            steps = []
-            ok = True
-            t0 = time.time()
-            for st in sc.steps:
-                sr = _check_step(st, cwd, port, snap, passthrough=passthrough)
-                steps.append(sr)
-                if not sr.ok:
-                    ok = False
-            hr.scenarios.append(ScenarioResult(
-                id=sc.id, title=sc.title, ok=ok, weight=sc.weight, steps=steps, seconds=time.time() - t0))
+        if needs_service:
+            proc, port = _start_service(hr, build, cwd, passthrough)
+        _run_scenarios(hr, scenarios, cwd, port, snap, passthrough)
     finally:
+        # health 待ち中・シナリオ中の Ctrl-C / 例外でもサービスとポート予約を残さない
         _stop_service(proc)
+        release_port(port)
+
+
+def _start_service(hr: HarnessResult, build: dict, cwd: Path, passthrough):
+    """build.json の run を起動して health を待つ。戻り値 (proc, port)。"""
+    port = _pick_port(_resolve_port(build["health_url"] or ""))
+    proc = None
+    try:
+        env = scrubbed_env({"FACTORY_PORT": str(port), "FACTORY_REPO": str(cwd)}, passthrough=passthrough)
+        proc = subprocess.Popen(
+            ["/bin/bash", "-lc", build["run"]],
+            cwd=str(cwd), env=env,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        hr.service_started = True
+        if build["health_url"]:
+            url = _apply_port(build["health_url"].replace("${FACTORY_PORT}", str(port)), port)
+            hr.health_ok = _wait_health(url, timeout=build["wait_s"])
+            if not hr.health_ok:
+                hr.warnings.append(f"health_url が起動しませんでした: {url}")
+    except Exception as e:
+        hr.warnings.append(f"service 起動失敗: {e}")
+    except BaseException:
+        _stop_service(proc)
+        release_port(port)
+        raise
+    return proc, port
+
+
+def _run_scenarios(hr: HarnessResult, scenarios, cwd: Path, port, snap, passthrough) -> None:
+    for sc in scenarios:
+        if getattr(sc, "invalid", ""):
+            hr.scenarios.append(ScenarioResult(
+                id=sc.id, title=sc.title, ok=False, weight=sc.weight,
+                steps=[StepResult(name="load", cmd="(scenario file)", ok=False, code=2, tail=sc.invalid)]))
+            hr.warnings.append(f"不正なシナリオファイル: {sc.id}")
+            continue
+        steps = []
+        ok = True
+        t0 = time.time()
+        for st in sc.steps:
+            sr = _check_step(st, cwd, port, snap, passthrough=passthrough)
+            steps.append(sr)
+            if not sr.ok:
+                ok = False
+        hr.scenarios.append(ScenarioResult(
+            id=sc.id, title=sc.title, ok=ok, weight=sc.weight, steps=steps, seconds=time.time() - t0))

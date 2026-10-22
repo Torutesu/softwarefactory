@@ -51,6 +51,10 @@ DEFAULT_PROTECTED_PATHS = [
 DEFAULT_WORKTREE_COPY = [".env", ".env.*", "config/secrets.json", "*.local"]
 
 
+class ConfigError(Exception):
+    """config.json が読めない / 検証エラー。CLI は終了コード 2 で止める。"""
+
+
 @dataclass
 class WorkerConfig:
     """worker種別ごとの設定。"""
@@ -68,6 +72,7 @@ class WorkerConfig:
     allowed_tools: List[str] = field(default_factory=list)  # claude: --allowedTools
     disallowed_tools: List[str] = field(default_factory=list)  # claude: --disallowedTools
     env_passthrough: List[str] = field(default_factory=list)  # 秘密っぽい環境変数のうち、この CLI に渡すもの
+    max_turns: int = 0  # claude: --max-turns (0 = 指定しない)
 
     def resolved_command(self) -> str:
         if self.command:
@@ -197,6 +202,7 @@ class Config:
                 allowed_tools=list(raw.get("allowed_tools") or []),
                 disallowed_tools=list(raw.get("disallowed_tools") or []),
                 env_passthrough=list(raw.get("env_passthrough") or []),
+                max_turns=int(raw.get("max_turns", 0) or 0),
             )
         return cls(
             root=data.get("root") or os.getcwd(),
@@ -233,16 +239,42 @@ class Config:
 
     # ---------------------------------------------------------------
     @classmethod
-    def discover(cls) -> Optional["Config"]:
-        """カレントから .factory/config.json をさかのぼって探す。"""
+    def load(cls, path: Path) -> "Config":
+        """config.json を読んで検証する。不正なら ConfigError (全エラーを列挙)。"""
+        from .configcheck import errors, validate
+
+        try:
+            data = json.loads(Path(path).read_text(encoding="utf-8"))
+        except json.JSONDecodeError as e:
+            raise ConfigError(f"{path}: JSON として読めません (line {e.lineno}: {e.msg})") from None
+        except OSError as e:
+            raise ConfigError(f"{path}: 読めません ({e})") from None
+        errs = errors(validate(data))
+        if errs:
+            raise ConfigError(f"{path} に {len(errs)} 件のエラー:\n" + "\n".join(f"  {i}" for i in errs))
+        try:
+            return cls.from_dict(data)
+        except (KeyError, TypeError, ValueError) as e:
+            raise ConfigError(f"{path}: 値が不正です ({type(e).__name__}: {e})") from None
+
+    @classmethod
+    def find_file(cls) -> Optional[Path]:
         cur = Path(os.getcwd()).resolve()
         for base in (cur, *cur.parents):
             cand = base / ".factory" / "config.json"
             if cand.is_file():
-                cfg = cls.from_dict(json.loads(cand.read_text(encoding="utf-8")))
-                cfg.root = str(base)
-                return cfg
+                return cand
         return None
+
+    @classmethod
+    def discover(cls) -> Optional["Config"]:
+        """カレントから .factory/config.json をさかのぼって探す (不正なら ConfigError)。"""
+        cand = cls.find_file()
+        if cand is None:
+            return None
+        cfg = cls.load(cand)
+        cfg.root = str(cand.parent.parent)
+        return cfg
 
     @classmethod
     def create(cls, root: str, demo: bool = False) -> "Config":

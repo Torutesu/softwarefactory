@@ -52,7 +52,8 @@ def create_pr(factory: Factory, mid: str, base: str = "") -> dict:
     if r.code != 0:
         print(f"PR 作成失敗: {r.err or r.out}", file=sys.stderr)
         return {"status": "failed", "draft": str(draft)}
-    url = (r.out or "").strip().splitlines()[-1]
+    lines = (r.out or "").strip().splitlines()
+    url = lines[-1] if lines else "(gh は URL を出力しませんでした)"
     print(f"PR created: {url}")
     return {"status": "created", "url": url, "draft": str(draft)}
 

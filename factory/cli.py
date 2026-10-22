@@ -103,9 +103,14 @@ def cmd_worker_ping(args) -> None:
             continue
         r = run_cmd([path, "--version"], timeout=30)
         ver = (r.out or r.err).strip().splitlines()[:1]
+        if r.code != 0:
+            print(f"[ng] {name}: `{cmd} --version` が失敗 (exit {r.code}) {ver[0] if ver else ''}")
+            ok = False
+            continue
         print(f"[ok] {name}: `{cmd}` {ver[0] if ver else ''} (auth={wc.auth})")
     if not ok:
         print("→ 未インストール/未設定の worker があります (.factory/config.json の worker_order を確認)。", file=sys.stderr)
+        sys.exit(1)
 
 
 def cmd_tick(args) -> None:
@@ -702,7 +707,31 @@ def cmd_pr(args) -> None:
     cfg, f = _require_cfg()
     from .pr import create_pr
 
-    create_pr(f, args.mission, base=args.base)
+    res = create_pr(f, args.mission, base=args.base)
+    if res.get("status") not in ("created", "draft"):
+        sys.exit(1)
+
+
+def cmd_config_check(args) -> None:
+    from .configcheck import errors, validate
+
+    path = Config.find_file()
+    if path is None:
+        print("エラー: .factory/config.json が見つかりません。", file=sys.stderr)
+        sys.exit(2)
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as e:
+        print(f"[error] {path}: JSON として読めません (line {e.lineno}: {e.msg})")
+        sys.exit(2)
+    issues = validate(data)
+    if args.json:
+        print(json.dumps([vars(i) for i in issues], ensure_ascii=False, indent=2))
+    else:
+        for i in issues:
+            print(i)
+        print(f"{path}: error {len(errors(issues))} / warning {len(issues) - len(errors(issues))}")
+    sys.exit(2 if errors(issues) else (1 if issues else 0))
 
 
 # ---------------------------------------------------------------------------
@@ -857,6 +886,11 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("mission")
     sp.set_defaults(fn=cmd_report)
 
+    sp = sub.add_parser("config", help="config.json の検証 (config check)")
+    sp.add_argument("action", choices=["check"])
+    sp.add_argument("--json", action="store_true")
+    sp.set_defaults(fn=cmd_config_check)
+
     sp = sub.add_parser("needs-human", help="人間の判断待ち (tick の escalate) の台帳")
     sp.add_argument("--ack", default="", help="指定キーを確認済みにする (再通知しない)")
     sp.add_argument("--all", action="store_true", help="ack 済みも表示")
@@ -891,6 +925,12 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv=None) -> None:
+    import urllib.error
+
+    from .bench import BenchError
+    from .collect import CollectError
+    from .config import ConfigError
+
     parser = build_parser()
     args = parser.parse_args(argv)
     try:
@@ -898,6 +938,18 @@ def main(argv=None) -> None:
     except KeyboardInterrupt:
         print("\n中断しました")
         sys.exit(130)
+    except (ConfigError, CollectError, BenchError) as e:
+        # 利用者の入力・設定の誤り: トレースバックではなく理由だけ出して終了コード 2
+        print(f"エラー: {e}", file=sys.stderr)
+        sys.exit(2)
+    except ValueError as e:
+        if "invalid mission id" not in str(e):
+            raise
+        print(f"エラー: {e}", file=sys.stderr)
+        sys.exit(2)
+    except urllib.error.URLError as e:
+        print(f"エラー: ネットワークに到達できません ({getattr(e, 'reason', e)})", file=sys.stderr)
+        sys.exit(2)
 
 
 if __name__ == "__main__":

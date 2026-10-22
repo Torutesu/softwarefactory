@@ -17,7 +17,7 @@ QUOTA_PATTERNS = [
     r"billing",
     r"too many requests",
     r"overloaded",
-    r"429",
+    r"\b429\b",
 ]
 
 # auth="subscription" のときは CLI がログイン済みプラン (Claude Pro/Max, ChatGPT
@@ -85,7 +85,9 @@ class WorkerResult:
 
 
 def classify_failure(stdout: str, stderr: str) -> str:
-    blob = (stdout or "") + "\n" + (stderr or "")
+    """失敗の種類。stdout はモデルの本文 (例: 課金機能の実装なら "billing" を含む) なので
+    末尾のエラー部分だけを見る。stderr は全体を見る。"""
+    blob = (stderr or "") + "\n" + (stdout or "")[-600:]
     low = blob.lower()
     for p in QUOTA_PATTERNS:
         if re.search(p, low):

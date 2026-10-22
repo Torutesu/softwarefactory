@@ -271,7 +271,11 @@ def write_draft(factory, source_name: str, stype: str, item: dict) -> Tuple[str,
         "hash": content_hash(item["text"]), "status": "new",
     }, ensure_ascii=False, indent=2), encoding="utf-8")
     if item.get("extra") is not None:
-        blob = d / item.get("extra_name")
+        # 元データの名前で signal.md / meta.json を上書きさせない、ドラフト外へも書かせない
+        name = Path(str(item.get("extra_name") or "original")).name
+        if name in ("signal.md", "meta.json", "", ".", ".."):
+            name = "original-" + (name.strip(".") or "data")
+        blob = d / name
         if isinstance(item["extra"], bytes):
             blob.write_bytes(item["extra"])
         else:
