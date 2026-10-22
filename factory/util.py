@@ -92,24 +92,68 @@ def locked(path: Path):
             fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
 
 
+def _to_text(v) -> str:
+    if v is None:
+        return ""
+    if isinstance(v, bytes):
+        return v.decode("utf-8", "replace")
+    return v
+
+
+def _kill_group(proc) -> None:
+    """プロセスグループごと止める (TERM → 3 秒 → KILL)。孫プロセスを残さない。"""
+    import signal
+
+    for sig in (signal.SIGTERM, signal.SIGKILL):
+        try:
+            os.killpg(proc.pid, sig)
+        except (OSError, ProcessLookupError):
+            return
+        try:
+            proc.wait(timeout=3)
+            return
+        except subprocess.TimeoutExpired:
+            continue
+
+
 def run_cmd(args, cwd=None, timeout=None, env=None) -> ProcResult:
-    """引数リストで外部コマンドを実行 (shell 不使用)。"""
+    """引数リストで外部コマンドを実行 (shell 不使用)。
+
+    新しいプロセスグループで起動し、タイムアウト時はグループごと止める
+    (ワーカー CLI や build/test が起動した孫プロセスを残さない)。
+    出力は常に str で返す (TimeoutExpired の途中出力は bytes で来るため decode する)。
+    """
     t0 = dt.datetime.now()
     try:
-        r = subprocess.run(
+        proc = subprocess.Popen(
             [str(a) for a in args],
             cwd=str(cwd) if cwd else None,
-            timeout=timeout,
-            capture_output=True,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
+            errors="replace",
             env=env,
+            start_new_session=True,
         )
-        pr = ProcResult(r.returncode, r.stdout or "", r.stderr or "", (dt.datetime.now() - t0).total_seconds())
-    except subprocess.TimeoutExpired as e:
-        pr = ProcResult(124, e.stdout or "", e.stderr or "", (dt.datetime.now() - t0).total_seconds(), timed_out=True)
     except FileNotFoundError as e:
-        pr = ProcResult(127, "", str(e), 0.0)
-    return pr
+        return ProcResult(127, "", str(e), 0.0)
+    except OSError as e:  # PermissionError (実行権なし) / E2BIG (引数が長すぎる) など
+        return ProcResult(126, "", f"{type(e).__name__}: {e}", 0.0)
+    try:
+        out, err = proc.communicate(timeout=timeout)
+        return ProcResult(proc.returncode, out or "", err or "", (dt.datetime.now() - t0).total_seconds())
+    except subprocess.TimeoutExpired as e:
+        _kill_group(proc)
+        try:
+            out, err = proc.communicate(timeout=5)
+        except (subprocess.TimeoutExpired, ValueError, OSError):
+            out, err = _to_text(e.stdout), _to_text(e.stderr)
+        return ProcResult(124, _to_text(out), _to_text(err), (dt.datetime.now() - t0).total_seconds(),
+                          timed_out=True)
+    except BaseException:
+        _kill_group(proc)  # Ctrl-C / SIGTERM 中断でも子を残さない
+        raise
 
 
 def run_shell(cmd: str, cwd=None, timeout=None, env=None) -> ProcResult:

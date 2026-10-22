@@ -31,6 +31,7 @@ class StepResult:
     code: int
     tail: str = ""
     seconds: float = 0.0
+    timed_out: bool = False
 
 
 @dataclass
@@ -114,6 +115,7 @@ def _shell(cmd: str, cwd: Path, port: Optional[int] = None, timeout: int = 600,
         code=pr.code if not pr.timed_out else 124,
         tail=((pr.out + ("\n--- stderr ---\n" + pr.err if pr.err else ""))[-1500:]),
         seconds=time.time() - t0,
+        timed_out=pr.timed_out,
     )
 
 
@@ -122,7 +124,9 @@ def _check_step(step, cwd: Path, port: Optional[int], holdout_dir, passthrough=(
     holdout_dir = Path(holdout_dir)
     r = _shell(step.cmd, cwd, port=port, timeout=step.timeout,
                env_extra={"FACTORY_HOLDOUT_DIR": str(holdout_dir)}, passthrough=passthrough)
-    ok = r.ok
+    ok = (not r.timed_out) and r.code == int(getattr(step, "expect_exit", 0) or 0)
+    if r.timed_out:
+        r.tail = (r.tail + f"\n[step] {step.timeout}s でタイムアウト")[-1500:]
     if ok and step.expect_contains is not None:
         ok = step.expect_contains in r.tail
     if ok and step.expect_not_contains is not None:
@@ -135,11 +139,14 @@ def _check_step(step, cwd: Path, port: Optional[int], holdout_dir, passthrough=(
 
         from .png import similarity
 
-        got = os.path.expandvars(cmp_spec.get("file", ""))
-        bench = holdout_dir / os.path.expandvars(cmp_spec.get("to", ""))
-        threshold = float(cmp_spec.get("ratio", 0.85))
-        if not (os.path.isabs(got) and os.path.exists(got)) and not os.path.exists(got):
-            got = os.path.join(str(cwd), cmp_spec.get("file", ""))
+        got = os.path.expandvars(str(cmp_spec.get("file", "")))
+        bench = holdout_dir / os.path.expandvars(str(cmp_spec.get("to", "")))
+        try:
+            threshold = float(cmp_spec.get("ratio", 0.85))
+        except (TypeError, ValueError):
+            threshold = 0.85
+        if not os.path.isabs(got):
+            got = os.path.join(str(cwd), got)  # 相対パスは作業ディレクトリ基準 (CLI の cwd ではない)
         if not os.path.exists(got):
             r.tail = (r.tail + f"\n[png-similar] 画像が見つかりません: {got}")[-1500:]
             ok = False
@@ -148,7 +155,7 @@ def _check_step(step, cwd: Path, port: Optional[int], holdout_dir, passthrough=(
             ok = False
         else:
             try:
-                score = similarity(got, str(bench), grid=int(cmp_spec.get("grid", 64)))
+                score = similarity(got, str(bench), grid=max(1, int(cmp_spec.get("grid", 64))))
             except Exception as e:
                 score = 0.0
                 r.tail = (r.tail + f"\n[png-similar] 比較エラー: {e}")[-1500:]
@@ -319,6 +326,12 @@ def _evaluate_sealed(hr: HarnessResult, build: dict, cwd: Path, m: Mission, scen
 
     try:
         for sc in scenarios:
+            if getattr(sc, "invalid", ""):
+                hr.scenarios.append(ScenarioResult(
+                    id=sc.id, title=sc.title, ok=False, weight=sc.weight,
+                    steps=[StepResult(name="load", cmd="(scenario file)", ok=False, code=2, tail=sc.invalid)]))
+                hr.warnings.append(f"不正なシナリオファイル: {sc.id}")
+                continue
             steps = []
             ok = True
             t0 = time.time()

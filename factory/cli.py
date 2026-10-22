@@ -310,6 +310,13 @@ def cmd_report(args) -> None:
     print(p.read_text(encoding="utf-8"))
 
 
+def _main_branch_for(cfg, m, repo_path: Path) -> str:
+    """ミッションの repo に対応する projects.<p>.main_branch (登録外なら checkout 中のブランチ)。"""
+    from .supervisor import main_branch_for
+
+    return main_branch_for(cfg, m, repo_path)
+
+
 def cmd_merge(args) -> None:
     cfg, f = _require_cfg()
     from . import gitx, mergegate
@@ -317,6 +324,10 @@ def cmd_merge(args) -> None:
     m = f.get_mission(args.mission)
     if not m:
         raise SystemExit(f"mission not found: {args.mission}")
+    if is_merged(m):
+        raise SystemExit(f"{m.id} は既にマージ済みです")
+    if m.status != "done" and not getattr(args, "force", False):
+        raise SystemExit(f"{m.id} は status={m.status} です (検証を通っていない差分は --force でのみマージ)")
     repo_path = Path(m.repo).resolve() if Path(m.repo).is_absolute() else f.root / m.repo
     wt = f.worktree(m.id)
     dirty = gitx.status_porcelain(wt)
@@ -336,7 +347,8 @@ def cmd_merge(args) -> None:
         if r.strip().lower() != "y":
             print("中止しました")
             return
-    r = gitx.merge_squash(repo_path, f"factory/{m.id}", mergegate.merge_message(m))
+    r = gitx.merge_squash(repo_path, f"factory/{m.id}", mergegate.merge_message(m),
+                          target_branch=_main_branch_for(cfg, m, repo_path))
     if r.code != 0:
         print(f"マージ失敗: {r.err or r.out}", file=sys.stderr)
         sys.exit(1)
@@ -412,16 +424,31 @@ def _print_status(f: Factory, show_bench: bool = False) -> None:
 
 
 def _needs_human_backlog(f: Factory) -> list:
-    """最新 tick イベントに積まれた needs_human の滞留リスト。"""
-    import json as _json
+    """needs_human 台帳の open (未 ack) 項目の文面。"""
+    from .supervisor import open_needs_human
 
-    for e in reversed(f.state().get("events") or []):
-        if e.get("kind") == "tick":
-            try:
-                return (_json.loads(e.get("detail") or "{}").get("needs_human") or [])
-            except _json.JSONDecodeError:
-                return []
-    return []
+    return [e.get("text", "") for e in open_needs_human(f)]
+
+
+def cmd_needs_human(args) -> None:
+    cfg, f = _require_cfg()
+    from .supervisor import ack_needs_human, open_needs_human
+
+    if args.ack:
+        if not ack_needs_human(f, args.ack):
+            raise SystemExit(f"not found: {args.ack}")
+        print(f"acked: {args.ack}")
+        return
+    items = open_needs_human(f, include_acked=args.all)
+    if args.json:
+        print(json.dumps(items, ensure_ascii=False, indent=2))
+        return
+    if not items:
+        print("needs_human: なし")
+        return
+    for e in items:
+        mark = " (ack)" if e.get("acked") else ""
+        print(f"{e['key']}  x{e.get('count', 1)}  since {e.get('first_seen', '')[:16]}{mark}\n    {e.get('text', '')}")
 
 
 def _print_dashboard(f: Factory, cfg: Config) -> None:
@@ -830,9 +857,16 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("mission")
     sp.set_defaults(fn=cmd_report)
 
+    sp = sub.add_parser("needs-human", help="人間の判断待ち (tick の escalate) の台帳")
+    sp.add_argument("--ack", default="", help="指定キーを確認済みにする (再通知しない)")
+    sp.add_argument("--all", action="store_true", help="ack 済みも表示")
+    sp.add_argument("--json", action="store_true")
+    sp.set_defaults(fn=cmd_needs_human)
+
     sp = sub.add_parser("merge", help="worktree を main に squash マージ")
     sp.add_argument("mission")
     sp.add_argument("--yes", action="store_true")
+    sp.add_argument("--force", action="store_true", help="done 以外 (検証未通過) のミッションもマージする")
     sp.set_defaults(fn=cmd_merge)
 
     sp = sub.add_parser("usage", help="使用量レポート")

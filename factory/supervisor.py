@@ -31,6 +31,20 @@ from .usage import Usage
 from .workers.router import Router
 
 
+def main_branch_for(cfg, m, repo: Path) -> str:
+    """projects.<p>.main_branch を返す (ミッションの repo が登録外なら checkout 中のブランチ)。"""
+    try:
+        target = Path(repo).resolve()
+        for pc in (getattr(cfg, "projects", None) or {}).values():
+            p = Path(pc.path)
+            p = p if p.is_absolute() else Path(cfg.root) / p
+            if p.resolve() == target and pc.main_branch and gitx.branch_exists(repo, pc.main_branch):
+                return pc.main_branch
+    except OSError:
+        pass
+    return gitx.default_branch(repo)
+
+
 def _repo_path(factory: Factory, m) -> Path:
     return Path(m.repo).resolve() if Path(m.repo).is_absolute() else factory.root / m.repo
 
@@ -241,7 +255,8 @@ def step_deliver(factory: Factory, cfg: Config, dry_run: bool) -> dict:
             merged.append(f"(dry) {m.id} [{tier}]")
             canaries.append(f"(dry) {m.id}")
             continue
-        r = gitx.merge_squash(repo, f"factory/{m.id}", mergegate.merge_message(m))
+        r = gitx.merge_squash(repo, f"factory/{m.id}", mergegate.merge_message(m),
+                              target_branch=main_branch_for(cfg, m, repo))
         if r.code != 0:
             escalations.append(f"{m.id}: マージ失敗 {(r.err or r.out)[-200:]}")
             continue
@@ -317,10 +332,97 @@ def tick(factory: Factory, cfg: Config, dry_run: bool = False) -> dict:
     print(json.dumps(out, ensure_ascii=False, indent=2))
     if dry_run:
         return out
-    factory.event("tick", json.dumps(out, ensure_ascii=False)[:480])
-    if getattr(cfg, "notify_url", ""):
-        _notify(cfg.notify_url, out)
+    changes = record_needs_human(factory, needs_human)
+    out["needs_human_new"] = changes["new"]
+    out["needs_human_resolved"] = changes["resolved"]
+    factory.event("tick", json.dumps(_tick_digest(out), ensure_ascii=False)[:480])
+    # 通知は「新規」と「解消」があったときだけ (毎 tick 同じ escalate を送ると誰も読まなくなる)
+    if getattr(cfg, "notify_url", "") and (changes["new"] or changes["resolved"]):
+        _notify(cfg.notify_url, {"ts": out["ts"], "new": changes["new"], "resolved": changes["resolved"],
+                                 "open": len(changes["open"]), "summary": _tick_digest(out)})
     return out
+
+
+def _tick_digest(out: dict) -> dict:
+    """events / 通知に載せる tick の短い要約 (全文は tick の標準出力に出ている)。"""
+    ex = out.get("execute") or {}
+    dl = out.get("deliver") or {}
+    return {
+        "created": len((out.get("intake") or {}).get("created") or []),
+        "ran": len(ex.get("ran") or []),
+        "merged": len(dl.get("merged") or []),
+        "canary": len(dl.get("canary") or []),
+        "needs_human": len(out.get("needs_human") or []),
+        "new": len(out.get("needs_human_new") or []),
+    }
+
+
+def _nh_key(text: str) -> str:
+    import hashlib
+
+    return hashlib.sha1(" ".join(str(text).split()).encode("utf-8")).hexdigest()[:12]
+
+
+def record_needs_human(factory: Factory, items: list) -> dict:
+    """tick の escalate を state.json の needs_human 台帳に反映する (重複排除)。
+
+    戻り値: {"new": [text], "resolved": [text], "open": [entry]}
+    - 同じ文面は 1 件として数え、last_seen / count を更新する
+    - 今回の tick に現れなかった open 項目は resolved にする
+    - ack 済み (factory needs-human --ack) は新規通知しない
+    """
+    now = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
+    res = {"new": [], "resolved": [], "open": []}
+
+    def fn(st: dict) -> None:
+        book = st.setdefault("needs_human", {})
+        seen = set()
+        for t in items:
+            text = str(t)
+            k = _nh_key(text)
+            seen.add(k)
+            e = book.get(k)
+            if e is None or not e.get("open"):
+                e = {"key": k, "text": text[:500], "first_seen": now, "count": 0,
+                     "acked": bool(e and e.get("acked"))}
+                if not e["acked"]:
+                    res["new"].append(text)
+            e.update(open=True, last_seen=now, count=int(e.get("count", 0)) + 1)
+            e.pop("resolved", None)
+            book[k] = e
+        for k, e in book.items():
+            if e.get("open") and k not in seen:
+                e["open"] = False
+                e["resolved"] = now
+                res["resolved"].append(e.get("text", ""))
+        # 解消済みは直近 200 件だけ残す
+        closed = sorted((k for k, e in book.items() if not e.get("open")),
+                        key=lambda k: book[k].get("resolved", ""))
+        for k in closed[:-200]:
+            book.pop(k, None)
+        res["open"] = [e for e in book.values() if e.get("open") and not e.get("acked")]
+
+    factory._mutate_state(fn)
+    return res
+
+
+def open_needs_human(factory: Factory, include_acked: bool = False) -> list:
+    book = factory.state().get("needs_human") or {}
+    items = [e for e in book.values() if e.get("open") and (include_acked or not e.get("acked"))]
+    return sorted(items, key=lambda e: e.get("first_seen", ""))
+
+
+def ack_needs_human(factory: Factory, key: str) -> bool:
+    found = {"ok": False}
+
+    def fn(st: dict) -> None:
+        e = (st.get("needs_human") or {}).get(key)
+        if e:
+            e["acked"] = True
+            found["ok"] = True
+
+    factory._mutate_state(fn)
+    return found["ok"]
 
 
 def _notify(url: str, payload: dict) -> None:

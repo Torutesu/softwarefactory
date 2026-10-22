@@ -32,9 +32,13 @@ def run_canary(factory: Factory, mid: str, cfg=None, fix: bool = False, run_comp
         raise SystemExit(f"{mid} は merge 済みミッションではありません (status={m.status})")
 
     repo = _repo_path(factory, m)
-    default = gitx.default_branch(repo)
+    from .supervisor import main_branch_for
+
+    default = main_branch_for(cfg, m, repo) if cfg else gitx.default_branch(repo)
     stamp = dt.datetime.now().strftime("%Y%m%d-%H%M%S")
     cwt = factory.mission_dir(mid) / "canary"
+    # 中断で残った古い canary worktree (昔の main) を再利用しない
+    gitx.remove_worktree(repo, cwt, force=True)
     gitx.create_worktree(repo, cwt, detached=True, branch=default)
     # カナリアも空の checkout。.env 等がないと build/run が偽失敗する
     gitx.seed_worktree_files(repo, cwt, getattr(cfg, "worktree_copy", None) if cfg else None)
@@ -76,7 +80,13 @@ def run_canary(factory: Factory, mid: str, cfg=None, fix: bool = False, run_comp
 
     if fix:
         result["revert"] = _try_revert(factory, repo, mid)
-        result["new_mission"] = _reseed_failure(factory, m, hr)
+        # revert できなかった (dirty/競合/コミット不明) のに修復ミッションを作ると、壊れた main の上で
+        # 無関係な修正を始めてしまう。取り消せた (または取り消し済み) ときだけ再挑戦する
+        if result["revert"].startswith(("reverted", "already-reverted")):
+            result["new_mission"] = _reseed_failure(factory, m, hr)
+        else:
+            result["new_mission"] = None
+            factory.event("canary_revert_failed", f"{mid}: {result['revert'][:200]}")
         new_mid = result["new_mission"]
         if new_mid and run_complete:
             try:

@@ -8,7 +8,7 @@ from . import gitx, spec_generator as specgen, holdout as holdout_mod, report as
 from .config import Config
 from .harness.judge import run_judge
 from .harness.runner import HarnessResult, evaluate
-from .state import Factory, Iteration, Mission, mission_cost_usd
+from .state import Factory, Iteration, Mission, mission_cost_usd, one_line
 from .util import load_json, load_text, now_utc_iso, save_text, tail
 from .usage import Usage
 from .workers.base import AllWorkersFailed
@@ -101,14 +101,21 @@ def _pass_criteria(m: Mission, hr: HarnessResult, judge_data: Optional[dict]) ->
 
 
 def _effective_cfg(cfg: Config, m: Mission) -> Config:
-    """ミッション単位のモデル上書きを適用した config のコピーを返す。"""
+    """ミッション単位のモデル上書きを適用した config のコピーを返す。
+
+    モデル名はワーカー種別ごとに違う (sonnet / gpt-5.2 / anthropic/...)。全ワーカーに配ると
+    フォールバック先で不正なモデル名になるので、dev の第一候補と同じ種別のワーカーにだけ適用する。
+    """
     if not m.model:
         return cfg
     import copy
 
     cfg2 = copy.deepcopy(cfg)
+    cands = Router(cfg2, Usage(Path(cfg2.root) / ".factory")).candidates("dev")
+    target = cfg2.workers.get(cands[0]).type if cands and cands[0] in cfg2.workers else None
     for wc in cfg2.workers.values():
-        wc.model = m.model
+        if target is None or wc.type == target:
+            wc.model = m.model
     return cfg2
 
 
@@ -116,14 +123,42 @@ def run_mission(factory: Factory, mid: str, confirm: bool = False, iterations: O
     m = factory.get_mission(mid)
     if not m:
         raise SystemExit(f"mission not found: {mid}")
-    if m.status == "done":
-        print(f"[skip] {mid} は既に done")
-        return m
     if m.risk == "high" and not confirm:
         raise SystemExit(f"高リスクミッション ({mid}) は --confirm を付けて実行してください")
 
     with factory.lock(mid):
-        return _run_locked(factory, m, iterations, cfg)
+        # ロック待ちの間に別プロセスが完走させている可能性があるので、ロック内で読み直す
+        m = factory.get_mission(mid) or m
+        if m.status == "done":
+            print(f"[skip] {mid} は既に done")
+            return m
+        try:
+            return _run_locked(factory, m, iterations, cfg)
+        except Exception as e:
+            # 途中の例外で status が spec/holdout/dev のまま放置されないようにする
+            return _mark_crashed(factory, mid, "crash", f"{type(e).__name__}: {e}")
+        except BaseException:
+            # Ctrl-C / SIGTERM: やり直せるよう queued に戻して伝播させる
+            _mark_crashed(factory, mid, "interrupted", "interrupted", status="queued")
+            raise
+
+
+def _mark_crashed(factory: Factory, mid: str, reason: str, detail: str, status: str = "failed") -> Mission:
+    import traceback
+
+    holdout_mod.unseal_if_stale(factory, mid)
+    m = factory.get_mission(mid)
+    if m is None:
+        raise SystemExit(f"mission not found: {mid}")
+    m.status = status
+    m.halt_reason = reason
+    m.notes = (m.notes + "\n" if m.notes else "") + one_line(f"[{reason}] {detail}", 300)
+    factory.save_mission(m)
+    factory.event("mission_" + reason, f"{mid}: {one_line(detail, 300)}")
+    if reason == "crash":
+        save_text(factory.reports_dir(mid) / "crash.txt", traceback.format_exc())
+        print(f"[loop] {mid}: 例外で中断 → failed (crash): {one_line(detail, 200)}")
+    return m
 
 
 def _run_locked(factory: Factory, m: Mission, iterations: Optional[int], cfg: Optional[Config]) -> Mission:
@@ -136,9 +171,10 @@ def _run_locked(factory: Factory, m: Mission, iterations: Optional[int], cfg: Op
     repo_path = Path(m.repo).resolve() if Path(m.repo).is_absolute() else factory.root / m.repo
     if m.kind == "greenfield" and not repo_path.exists():
         repo_path.mkdir(parents=True)
-    gitx.ensure_repo(repo_path)
-    gitx.ensure_baseline_commit(repo_path)
-    wt = gitx.create_worktree(repo_path, factory.worktree(m.id), f"factory/{m.id}")
+    with gitx.repo_lock(repo_path, factory.state_dir / "locks"):
+        gitx.ensure_repo(repo_path)
+        gitx.ensure_baseline_commit(repo_path)
+        wt = gitx.create_worktree(repo_path, factory.worktree(m.id), f"factory/{m.id}")
 
     run_dir = factory.run_dir(m.id)
 
@@ -170,7 +206,13 @@ def _run_locked(factory: Factory, m: Mission, iterations: Optional[int], cfg: Op
         print(f"[loop] {m.id}: 前回の中断で封印されたままの holdout を復旧しました")
     if not holdout_mod.scenario_files(factory, m.id):
         print("[loop] ホールドアウトシナリオを生成します (Holdout Generator)...")
-        holdout_mod.generate(factory, m, router)
+        if not holdout_mod.generate(factory, m, router) and holdout_mod.scenario_files(factory, m.id):
+            # 不正なシナリオが残っている: そのまま進むと検証の意味が変わる
+            m.status = "failed"
+            m.halt_reason = "holdout_failed"
+            factory.save_mission(m)
+            print(f"[loop] {m.id}: ホールドアウト生成に失敗 (不正なシナリオ) → failed")
+            return m
     # dev (ワーカーのコード) が一度も走っていない今の状態を正として指紋を記録する
     if holdout_mod.scenario_files(factory, m.id) and \
             holdout_mod.verify_manifest(factory, m.id) == "unrecorded":
@@ -263,8 +305,21 @@ def _run_locked(factory: Factory, m: Mission, iterations: Optional[int], cfg: Op
         # (次反復への指摘は build/test の tail と失敗シナリオ名で足りる)
         if hr.ok or cfg.judge_on_harness_fail:
             judge_data = run_judge(factory, m, hr, worker_tail, router)
+            if judge_data is None and hr.ok:
+                judge_data = run_judge(factory, m, hr, worker_tail, router)  # 一時的な失敗に 1 回だけ再試行
         else:
             judge_data = None
+        if hr.ok and judge_data is None and cfg.judge_required:
+            # judge が枠切れ/JSON 不正で使えないとき、harness だけで合格にしない (fail-closed)。
+            # dev をもう 1 反復回しても同じなので止めて人間に返す
+            it.status = "failed"
+            it.score = int(hr.base_score)
+            it.note = "[judge_unavailable] judge の判定を取得できませんでした\n" + it.note
+            iterations_log.append(it)
+            m.halt_reason = "judge_unavailable"
+            factory.event("judge_unavailable", f"{m.id} iter={n}")
+            print(f"[loop] {m.id}: judge の判定が得られないため打ち切り (needs_human)")
+            break
         passed, score = _pass_criteria(m, hr, judge_data)
         it.status = "passed" if passed else "failed"
         it.score = score
@@ -298,9 +353,11 @@ def _run_locked(factory: Factory, m: Mission, iterations: Optional[int], cfg: Op
     final_md = report_mod.final_report(factory, m, iterations_log, conclusion, run_dir, next_signals)
     save_text(factory.reports_dir(m.id) / "final.md", final_md)
     if next_signals:
-        st = factory.state()
-        st.setdefault("signals", []).append({"ts": now_utc_iso(), "source": "judge", "mission": m.id, "items": next_signals})
-        factory.save_state(st)
+        def _add(st: dict) -> None:
+            st.setdefault("signals", []).append(
+                {"ts": now_utc_iso(), "source": "judge", "mission": m.id, "items": next_signals})
+
+        factory._mutate_state(_add)
     factory.event("mission_" + m.status, m.id)
     print(f"[loop] {m.id} -> {m.status}")
     return m

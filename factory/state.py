@@ -57,7 +57,7 @@ class Mission:
     merged_utc: str = ""  # main へマージした時刻 (空 = 未マージ)。notes の文字列では判定しない
     merged_tier: str = ""
     repair_of: str = ""  # カナリア修復ミッションの親 ID
-    halt_reason: str = ""  # 打ち切り理由: noprogress | max_iterations | all_workers_failed | unreviewable | holdout_leak | holdout_tamper
+    halt_reason: str = ""  # 打ち切り理由: noprogress | max_iterations | all_workers_failed | unreviewable | holdout_leak | holdout_tamper | holdout_failed | judge_unavailable | crash | interrupted
     created_utc: str = field(default_factory=now_utc_iso)
     updated_utc: str = field(default_factory=now_utc_iso)
     notes: str = ""

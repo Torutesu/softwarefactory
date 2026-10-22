@@ -75,7 +75,10 @@ def create_worktree(repo: Path, wt_path: Path, branch: str = "", detached: bool 
     """worktree を作る。既存があれば再利用。branch を省略か detached=True で detach。"""
     wt_path = Path(wt_path)
     if wt_path.exists() and (wt_path / ".git").exists():
-        return wt_path
+        # 中断や競合で HEAD の無い (unborn) worktree が残っていると永久に失敗するので作り直す
+        if _git(wt_path, "rev-parse", "--verify", "HEAD").code == 0:
+            return wt_path
+        _git(repo, "worktree", "remove", "--force", str(wt_path))
     # ゴミ掃除 (パスが残っているが worktree が無い場合)
     _git(repo, "worktree", "prune")
     if wt_path.exists():
@@ -90,6 +93,16 @@ def create_worktree(repo: Path, wt_path: Path, branch: str = "", detached: bool 
     if r.code != 0:
         raise RuntimeError("worktree add failed: " + (r.err or r.out))
     return wt_path
+
+
+def repo_lock(repo: Path, lock_dir: Path):
+    """repo 単位の排他 (baseline コミット作成と worktree 追加を並列ミッション間で直列化)。"""
+    import hashlib
+
+    from .util import locked
+
+    key = hashlib.sha1(str(Path(repo).resolve()).encode("utf-8")).hexdigest()[:16]
+    return locked(Path(lock_dir) / f"repo-{key}")
 
 
 def remove_worktree(repo: Path, wt_path: Path, force: bool = True) -> None:
@@ -180,13 +193,35 @@ def changed_files(wt: Path, base: str = "HEAD") -> list:
     return [l for l in r.out.splitlines() if l.strip()]
 
 
-def merge_squash(repo: Path, branch: str, message: str) -> ProcResult:
-    """squash マージを試みる。競合時はコード 1 を返す。"""
+def tracked_dirty(repo: Path) -> str:
+    """追跡ファイルの未コミット変更 (staged/unstaged) と未解決の競合。未追跡は含めない。"""
+    r = _git(repo, "status", "--porcelain", "--untracked-files=no")
+    return r.out.strip() if r.code == 0 else "(git status failed)"
+
+
+def merge_squash(repo: Path, branch: str, message: str, target_branch: str = "") -> ProcResult:
+    """squash マージを試みる。失敗したら main repo を元の状態に戻してコード != 0 を返す。
+
+    - 追跡ファイルに未コミット変更がある repo には触らない (人間の作業中の変更を factory の
+      コミットに巻き込まない / 競合後の巻き戻しで消さない)
+    - target_branch を渡すと、checkout 中のブランチがそれと違うときは拒否する
+    - `merge --squash` は MERGE_HEAD を作らないので `merge --abort` では戻らない。
+      事前に clean を確認しているので `reset --hard HEAD` で競合状態を確実に戻す
+    """
+    dirty = tracked_dirty(repo)
+    if dirty:
+        return ProcResult(1, "", "main repo に未コミットの変更があるためマージしません:\n" + dirty[:500], 0.0)
+    if target_branch:
+        cur = default_branch(repo)
+        if cur != target_branch:
+            return ProcResult(1, "", f"main repo の checkout が {cur} です ({target_branch} であること)", 0.0)
     r = _git(repo, "merge", "--squash", branch)
     if r.code != 0:
-        _git(repo, "merge", "--abort")
+        _git(repo, "reset", "--hard", "HEAD")
         return r
     r2 = _git(repo, "commit", "-m", message)
+    if r2.code != 0:
+        _git(repo, "reset", "--hard", "HEAD")  # 空の squash 等: 半端な index を残さない
     return r2
 
 

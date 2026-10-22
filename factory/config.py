@@ -121,6 +121,7 @@ class Config:
     noprogress_iterations: int = 2  # 連続でこの回数、実差分ゼロの反復が続いたら打ち切り (0 で無効)
     require_reviewable: bool = True  # build.json の test もホールドアウトも無いミッションは dev に入らない
     judge_on_harness_fail: bool = False  # harness 失敗時も judge を呼ぶか (既定: 呼ばずに枠を節約)
+    judge_required: bool = True  # judge の判定が得られないときは合格にしない (fail-closed)
     harness_env_passthrough: List[str] = field(default_factory=list)  # build/test/シナリオに渡す秘密っぽい環境変数
     allow_mock_fallback: bool = False  # use_worker=auto のとき mock を最後のフォールバックに使うか
     protected_paths: List[str] = field(
@@ -160,6 +161,7 @@ class Config:
             "noprogress_iterations": self.noprogress_iterations,
             "require_reviewable": self.require_reviewable,
             "judge_on_harness_fail": self.judge_on_harness_fail,
+            "judge_required": self.judge_required,
             "harness_env_passthrough": list(self.harness_env_passthrough),
             "allow_mock_fallback": self.allow_mock_fallback,
             "protected_paths": list(self.protected_paths),
@@ -219,6 +221,7 @@ class Config:
             noprogress_iterations=int(data.get("noprogress_iterations", 2)),
             require_reviewable=bool(data.get("require_reviewable", True)),
             judge_on_harness_fail=bool(data.get("judge_on_harness_fail", False)),
+            judge_required=bool(data.get("judge_required", True)),
             harness_env_passthrough=list(data.get("harness_env_passthrough") or []),
             allow_mock_fallback=bool(data.get("allow_mock_fallback", False)),
             protected_paths=(list(data["protected_paths"]) if data.get("protected_paths") is not None

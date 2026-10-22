@@ -41,6 +41,7 @@ class Scenario:
     weight: float = 1.0
     steps: List[Step] = field(default_factory=list)
     notes: str = ""
+    invalid: str = ""  # 読めなかった/形式不正のシナリオファイル (失敗として数える)
 
     def to_dict(self) -> dict:
         return {"id": self.id, "title": self.title, "weight": self.weight,
@@ -48,9 +49,38 @@ class Scenario:
 
     @classmethod
     def from_dict(cls, d: dict) -> "Scenario":
-        steps = [Step(**{k: v for k, v in st.items() if k in Step.__dataclass_fields__}) for st in d.get("steps", [])]
-        return cls(id=d["id"], title=d.get("title", d["id"]), weight=float(d.get("weight", 1.0)),
-                   steps=steps, notes=d.get("notes", ""))
+        """形式を検証して読み込む。不正なら ValueError (呼び出し側で失敗シナリオにする)。"""
+        if not isinstance(d, dict):
+            raise ValueError("シナリオは JSON オブジェクトであること")
+        sid = d.get("id")
+        if not isinstance(sid, str) or not sid.strip():
+            raise ValueError("id が無い")
+        raw_steps = d.get("steps")
+        if not isinstance(raw_steps, list) or not raw_steps:
+            raise ValueError("steps が空か配列でない")
+        steps = []
+        for i, st in enumerate(raw_steps, 1):
+            if not isinstance(st, dict) or not isinstance(st.get("cmd"), str) or not st["cmd"].strip():
+                raise ValueError(f"step {i}: cmd (文字列) が必要")
+            kw = {k: v for k, v in st.items() if k in Step.__dataclass_fields__}
+            try:
+                kw["expect_exit"] = int(kw.get("expect_exit", 0))
+                kw["timeout"] = max(1, int(kw.get("timeout", 120)))
+            except (TypeError, ValueError):
+                raise ValueError(f"step {i}: expect_exit/timeout は整数") from None
+            for k in ("expect_contains", "expect_not_contains", "expect_regex"):
+                if kw.get(k) is not None:
+                    kw[k] = str(kw[k])
+            if kw.get("expect_png_similar") is not None and not isinstance(kw["expect_png_similar"], dict):
+                raise ValueError(f"step {i}: expect_png_similar はオブジェクト")
+            kw["name"] = str(kw.get("name") or f"step{i}")
+            steps.append(Step(**kw))
+        try:
+            weight = float(d.get("weight", 1.0))
+        except (TypeError, ValueError):
+            raise ValueError("weight は数値") from None
+        return cls(id=sid, title=str(d.get("title") or sid), weight=max(0.0, weight),
+                   steps=steps, notes=str(d.get("notes") or ""))
 
 
 # ---------------------------------------------------------------------------
@@ -199,8 +229,10 @@ def load_scenarios(factory: Factory, mid: str, base: Optional[Path] = None) -> L
         try:
             d = json.loads(p.read_text(encoding="utf-8"))
             out.append(Scenario.from_dict(d))
-        except (json.JSONDecodeError, KeyError, TypeError):
-            continue
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError) as e:
+            # 黙って捨てると「シナリオ 0/0 で合格 (100 点)」になる。失敗シナリオとして残す
+            out.append(Scenario(id=p.stem, title=f"(不正なシナリオファイル {p.name})",
+                                invalid=f"{type(e).__name__}: {e}"[:300]))
     return out
 
 
@@ -274,17 +306,17 @@ UI を持つ製品で Seed に基準スクショ (PNG) が同梱されている�
 
 
 def verify_scenarios(factory: Factory, mid: str) -> List[str]:
+    files = scenario_files(factory, mid)
+    if not files:
+        return ["scenario files not created"]
     errors = []
-    for p in scenario_files(factory, mid):
+    for p in files:
         try:
-            d = json.loads(p.read_text(encoding="utf-8"))
-            if not d.get("id") or not d.get("steps"):
-                errors.append(f"{p.name}: id/steps が不足")
-            for st in d.get("steps", []):
-                if not st.get("cmd"):
-                    errors.append(f"{p.name}: cmd の無い step がある")
-        except json.JSONDecodeError as e:
+            Scenario.from_dict(json.loads(p.read_text(encoding="utf-8")))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as e:
             errors.append(f"{p.name}: JSON不正 ({e})")
+        except ValueError as e:
+            errors.append(f"{p.name}: {e}")
     return errors
 
 
