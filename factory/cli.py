@@ -386,6 +386,23 @@ def cmd_merge(args) -> None:
         if r.strip().lower() != "y":
             print("中止しました")
             return
+    if not args.no_revalidate:
+        from .supervisor import revalidate_on_base
+
+        rv = revalidate_on_base(f, cfg, m, repo_path, wt)
+        if rv["status"] == "conflict":
+            print(f"{m.id}: {rv['base']} と競合します。worktree ({wt}) で解消してから再実行してください",
+                  file=sys.stderr)
+            sys.exit(1)
+        if rv["status"] == "failed":
+            print(f"{m.id}: 最新 {rv['base']} を取り込むと検証に失敗しました → queued に戻しました (stale_base)",
+                  file=sys.stderr)
+            sys.exit(1)
+        if rv["status"] == "error":
+            print(f"{m.id}: 再検証できません ({rv.get('detail')})", file=sys.stderr)
+            sys.exit(1)
+        if rv["status"] == "passed":
+            print(f"最新 {rv['base']} を取り込んで再検証: PASS")
     r = gitx.merge_squash(repo_path, f"factory/{m.id}", mergegate.merge_message(m),
                           target_branch=_main_branch_for(cfg, m, repo_path))
     if r.code != 0:
@@ -973,6 +990,8 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("mission")
     sp.add_argument("--yes", action="store_true")
     sp.add_argument("--force", action="store_true", help="done 以外 (検証未通過) のミッションもマージする")
+    sp.add_argument("--no-revalidate", action="store_true",
+                    help="最新 main を取り込んだ再検証を省く (既定は main が進んでいれば取り込んで再検証)")
     sp.set_defaults(fn=cmd_merge)
 
     sp = sub.add_parser("usage", help="使用量レポート")

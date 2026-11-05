@@ -129,6 +129,7 @@ class Config:
     judge_required: bool = True  # judge の判定が得られないときは合格にしない (fail-closed)
     max_recover_attempts: int = 2  # 実行途中で落ちたミッションを tick が queued に戻す回数の上限
     judge_diff_chars: int = 4000  # judge に見せる実差分 (git diff) の上限文字数
+    revalidate_before_merge: bool = True  # 自動マージ前に最新 main を取り込んで検証し直す
     harness_env_passthrough: List[str] = field(default_factory=list)  # build/test/シナリオに渡す秘密っぽい環境変数
     allow_mock_fallback: bool = False  # use_worker=auto のとき mock を最後のフォールバックに使うか
     protected_paths: List[str] = field(
@@ -171,6 +172,7 @@ class Config:
             "judge_required": self.judge_required,
             "max_recover_attempts": self.max_recover_attempts,
             "judge_diff_chars": self.judge_diff_chars,
+            "revalidate_before_merge": self.revalidate_before_merge,
             "harness_env_passthrough": list(self.harness_env_passthrough),
             "allow_mock_fallback": self.allow_mock_fallback,
             "protected_paths": list(self.protected_paths),
@@ -234,6 +236,7 @@ class Config:
             judge_required=bool(data.get("judge_required", True)),
             max_recover_attempts=int(data.get("max_recover_attempts", 2)),
             judge_diff_chars=int(data.get("judge_diff_chars", 4000)),
+            revalidate_before_merge=bool(data.get("revalidate_before_merge", True)),
             harness_env_passthrough=list(data.get("harness_env_passthrough") or []),
             allow_mock_fallback=bool(data.get("allow_mock_fallback", False)),
             protected_paths=(list(data["protected_paths"]) if data.get("protected_paths") is not None

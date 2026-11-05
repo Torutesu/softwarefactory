@@ -134,6 +134,30 @@ def diff_summary(wt: Path, base: str, max_chars: int = 4000) -> str:
     return text
 
 
+def is_ancestor(repo: Path, a: str, b: str) -> bool:
+    """a が b の祖先 (= b は a を含んでいる) か。"""
+    return _git(repo, "merge-base", "--is-ancestor", a, b).code == 0
+
+
+def merge_base_into(wt: Path, base: str) -> str:
+    """worktree のブランチに base (main) を取り込む。
+
+    戻り値: "uptodate" (既に含んでいる) | "merged" (取り込んだ) | "conflict" (取り込めず元に戻した) |
+            "error"
+    """
+    if is_ancestor(wt, base, "HEAD"):
+        return "uptodate"
+    if tracked_dirty(wt):
+        return "error"
+    r = _git(wt, "merge", "--no-edit", "-m", f"factory: merge {base} for revalidation", base, timeout=120)
+    if r.code == 0:
+        return "merged"
+    _git(wt, "merge", "--abort")
+    if tracked_dirty(wt):
+        _git(wt, "reset", "--hard", "HEAD")
+    return "conflict"
+
+
 def repo_lock(repo: Path, lock_dir: Path):
     """repo 単位の排他 (baseline コミット作成と worktree 追加を並列ミッション間で直列化)。"""
     import hashlib
@@ -258,6 +282,10 @@ def merge_squash(repo: Path, branch: str, message: str, target_branch: str = "")
     if r.code != 0:
         _git(repo, "reset", "--hard", "HEAD")
         return r
+    if _git(repo, "diff", "--cached", "--quiet").code == 0:
+        # 取り込む差分が無い = main が既に同じ変更を含んでいる (並列ミッションが同じ修正をした等)
+        _git(repo, "reset", "--hard", "HEAD")
+        return ProcResult(0, "already contained in target", "", 0.0)
     r2 = _git(repo, "commit", "-m", message)
     if r2.code != 0:
         _git(repo, "reset", "--hard", "HEAD")  # 空の squash 等: 半端な index を残さない

@@ -34,6 +34,49 @@ from .usage import Usage
 from .workers.router import Router
 
 
+def revalidate_on_base(factory: Factory, cfg: Config, m, repo: Path, wt: Path) -> dict:
+    """マージ直前に main を worktree へ取り込み、必要なら検証し直す。
+
+    戻り値 {"status": "uptodate" | "passed" | "skipped" | "failed" | "conflict" | "error", "base": ...}
+    failed のときはミッションを queued (halt_reason=stale_base) に戻す。
+    """
+    base = main_branch_for(cfg, m, repo)
+    if not wt.exists():
+        return {"status": "error", "base": base, "detail": "worktree がありません"}
+    try:
+        lock = factory.lock(m.id)
+        lock.__enter__()
+    except RuntimeError:
+        return {"status": "error", "base": base, "detail": "別プロセスが実行中"}
+    try:
+        return _revalidate_locked(factory, cfg, m, wt, base)
+    finally:
+        lock.__exit__(None, None, None)
+
+
+def _revalidate_locked(factory: Factory, cfg: Config, m, wt: Path, base: str) -> dict:
+    st = gitx.merge_base_into(wt, base)
+    if st in ("uptodate", "conflict", "error"):
+        if st == "conflict":
+            factory.event("merge_conflict_with_base", f"{m.id} base={base}")
+        return {"status": st, "base": base, "detail": "worktree に未コミット変更" if st == "error" else ""}
+    factory.event("base_merged_for_revalidation", f"{m.id} base={base}")
+    if not getattr(cfg, "revalidate_before_merge", True):
+        return {"status": "skipped", "base": base}
+    from .harness.runner import evaluate
+
+    hr = evaluate(factory, m, wt, env_passthrough=getattr(cfg, "harness_env_passthrough", ()),
+                  allow_record=False)
+    if hr.ok:
+        return {"status": "passed", "base": base}
+    cur = factory.get_mission(m.id)
+    cur.status = "queued"
+    cur.halt_reason = "stale_base"
+    factory.save_mission(cur)
+    factory.event("mission_stale_base", f"{m.id} base={base}")
+    return {"status": "failed", "base": base}
+
+
 def _repo_path(factory: Factory, m) -> Path:
     return Path(m.repo).resolve() if Path(m.repo).is_absolute() else factory.root / m.repo
 
@@ -249,6 +292,20 @@ def step_deliver(factory: Factory, cfg: Config, dry_run: bool) -> dict:
         if dry_run:
             merged.append(f"(dry) {m.id} [{tier}]")
             canaries.append(f"(dry) {m.id}")
+            continue
+        # --- 最新 main での再検証 -------------------------------------------
+        # 並列ミッションでは、検証したときの main と今の main が違う。両方とも単独では通っても
+        # 組み合わせると壊れる (同じ関数を別々に変えた等)。マージ前に main を取り込んで検証し直す
+        rv = revalidate_on_base(factory, cfg, m, repo, wt)
+        if rv["status"] == "conflict":
+            escalations.append(f"{m.id}: main と競合するため自動マージできません ({rv['base']})。"
+                               f"worktree で解消してから `factory merge {m.id} --yes`")
+            continue
+        if rv["status"] == "failed":
+            escalations.append(f"{m.id}: 最新 {rv['base']} を取り込むと検証に失敗 → queued に戻して再実装 (stale_base)")
+            continue
+        if rv["status"] == "error":
+            escalations.append(f"{m.id}: 再検証の準備に失敗 ({rv.get('detail', '')})")
             continue
         r = gitx.merge_squash(repo, f"factory/{m.id}", mergegate.merge_message(m),
                               target_branch=main_branch_for(cfg, m, repo))
