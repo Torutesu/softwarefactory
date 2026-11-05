@@ -22,6 +22,9 @@ from ..holdout import load_scenarios
 from ..state import Factory, Mission
 from ..util import load_json, run_shell, scrubbed_env
 
+# evaluate 実行中の sandbox 前置き (スレッドごと。並列ミッションが別々の設定でも混ざらない)
+_PREFIX = __import__("contextvars").ContextVar("factory_harness_prefix", default=())
+
 
 @dataclass
 class StepResult:
@@ -98,7 +101,7 @@ class HarnessResult:
 
 
 def _shell(cmd: str, cwd: Path, port: Optional[int] = None, timeout: int = 600,
-           env_extra: Optional[dict] = None, passthrough=()) -> StepResult:
+           env_extra: Optional[dict] = None, passthrough=(), prefix=()) -> StepResult:
     t0 = time.time()
     # LLM が書いたコードを動かすので、API キー・トークン類は渡さない (passthrough だけ許可)
     env = scrubbed_env({
@@ -107,7 +110,7 @@ def _shell(cmd: str, cwd: Path, port: Optional[int] = None, timeout: int = 600,
         "REPO": str(cwd),
         **(env_extra or {}),
     }, passthrough=passthrough)
-    pr = run_shell(cmd, cwd=cwd, timeout=timeout, env=env)
+    pr = run_shell(cmd, cwd=cwd, timeout=timeout, env=env, prefix=prefix or _PREFIX.get())
     return StepResult(
         name="shell",
         cmd=cmd,
@@ -270,7 +273,7 @@ def _stop_service(proc) -> None:
 
 
 def evaluate(factory: Factory, m: Mission, wt: Path, judge: bool = True, env_passthrough=(),
-             allow_record: bool = True) -> HarnessResult:
+             allow_record: bool = True, exec_prefix=()) -> HarnessResult:
     """現在の worktree を検証し、結果を返す。
 
     ワーカーが書いたコード (build/test/run) を動かす前にシナリオを照合・スナップショットし、
@@ -297,11 +300,13 @@ def evaluate(factory: Factory, m: Mission, wt: Path, judge: bool = True, env_pas
         hr.warnings.append("holdout の指紋が未記録だったため現状を記録しました")
     snap = holdout_mod.snapshot(factory, m.id)
     scenarios = load_scenarios(factory, m.id, base=snap) if snap else []
+    token = _PREFIX.set(tuple(exec_prefix or ()))
     try:
         with holdout_mod.sealed(factory, m.id):
             _evaluate_sealed(hr, build, cwd, m, scenarios, snap, env_passthrough,
                              real_holdout=factory.holdout_dir_for(m.id))
     finally:
+        _PREFIX.reset(token)
         if snap:
             shutil.rmtree(snap, ignore_errors=True)
     if state != "missing" and holdout_mod.verify_manifest(factory, m.id) == "tampered":
@@ -349,7 +354,7 @@ def _start_service(hr: HarnessResult, build: dict, cwd: Path, passthrough):
     try:
         env = scrubbed_env({"FACTORY_PORT": str(port), "FACTORY_REPO": str(cwd)}, passthrough=passthrough)
         proc = subprocess.Popen(
-            ["/bin/bash", "-lc", build["run"]],
+            list(_PREFIX.get()) + ["/bin/bash", "-lc", build["run"]],
             cwd=str(cwd), env=env,
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             start_new_session=True,

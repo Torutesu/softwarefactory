@@ -58,7 +58,8 @@ class Mission:
     merged_tier: str = ""
     repair_of: str = ""  # カナリア修復ミッションの親 ID
     recover_count: int = 0  # 孤児 (実行途中で落ちた) から queued に戻した回数
-    halt_reason: str = ""  # 打ち切り理由: noprogress | max_iterations | all_workers_failed | unreviewable | holdout_leak | holdout_tamper | holdout_failed | judge_unavailable | crash | interrupted | shutdown | recovered | crash_loop
+    depends_on: List[str] = field(default_factory=list)  # これらが main にマージされてから始める
+    halt_reason: str = ""  # 打ち切り理由: noprogress | max_iterations | all_workers_failed | unreviewable | holdout_leak | holdout_tamper | holdout_failed | judge_unavailable | crash | interrupted | shutdown | recovered | crash_loop | stale_base
     created_utc: str = field(default_factory=now_utc_iso)
     updated_utc: str = field(default_factory=now_utc_iso)
     notes: str = ""
@@ -112,6 +113,23 @@ def repair_parent(m: "Mission") -> str:
 def one_line(s: str, limit: int = 200) -> str:
     """外部入力を notes 等に埋め込む前に 1 行化して切り詰める。"""
     return " ".join(str(s or "").split())[:limit]
+
+
+STATE_SCHEMA = 2
+
+
+def migrate_state(st: dict) -> dict:
+    """古い state.json を現在の形に寄せる (その場で書き換える。保存は呼び出し側の次の save)。
+
+    v1 → v2: needs_human 台帳・project_starts・housekeeping を追加 (中身は空で始める)。
+    新しい版が書いた state (version > STATE_SCHEMA) はそのまま読む (未知キーは触らない)。
+    """
+    ver = int(st.get("version") or 1)
+    if ver < 2:
+        st.setdefault("needs_human", {})
+        st.setdefault("project_starts", {})
+        st["version"] = 2
+    return st
 
 
 def new_mission_id() -> str:
@@ -194,7 +212,7 @@ class Factory:
             st = {}
         if not isinstance(st, dict):
             st = {}
-        st.setdefault("version", 1)
+        migrate_state(st)
         st.setdefault("missions", {})
         st.setdefault("signals", [])
         st.setdefault("events", [])
@@ -256,6 +274,8 @@ class Factory:
         pass_score: int = 80,
         model: str = "",
         notes: str = "",
+        depends_on: Optional[List[str]] = None,
+        project: str = "",
     ) -> Mission:
         mid = new_mission_id()
         mdir = self.mission_dir(mid)
@@ -273,6 +293,8 @@ class Factory:
             pass_score=pass_score,
             model=model,
             notes=notes,
+            depends_on=list(depends_on or []),
+            project=project,
         )
         self.save_mission(m)
         self.index_mission(m)

@@ -94,6 +94,8 @@ class ProjectConfig:
     path: str  # リポジトリのルート (root からの相対 or 絶対パス)
     main_branch: str = DEFAULT_MAIN_BRANCH
     test_cmd: str = DEFAULT_TEST_CMD
+    daily_mission_limit: int = 0  # 1 日に開始するミッション数の上限 (0 = 無制限)
+    max_concurrent: int = 0  # 同時に実行中のミッション数の上限 (0 = 無制限)
 
     @property
     def holdout_dir(self) -> str:
@@ -129,6 +131,12 @@ class Config:
     judge_required: bool = True  # judge の判定が得られないときは合格にしない (fail-closed)
     max_recover_attempts: int = 2  # 実行途中で落ちたミッションを tick が queued に戻す回数の上限
     judge_diff_chars: int = 4000  # judge に見せる実差分 (git diff) の上限文字数
+    revalidate_before_merge: bool = True  # 自動マージ前に最新 main を取り込んで検証し直す
+    retention: Dict[str, object] = field(default_factory=dict)  # gc の保持期間 (housekeeping.DEFAULT_RETENTION を上書き)
+    backup_keep: int = 7  # tick の日次バックアップを何世代残すか (0 で日次バックアップしない)
+    backup_dir: str = ""  # 空なら .factory/backups
+    forecast_defer: bool = True  # dev の実ワーカー全員が枠不足の見込みならミッションを始めない
+    sandbox: str = "off"  # off | harness | all — macOS sandbox-exec で holdout/.factory/認証情報を読めなくする
     harness_env_passthrough: List[str] = field(default_factory=list)  # build/test/シナリオに渡す秘密っぽい環境変数
     allow_mock_fallback: bool = False  # use_worker=auto のとき mock を最後のフォールバックに使うか
     protected_paths: List[str] = field(
@@ -171,6 +179,12 @@ class Config:
             "judge_required": self.judge_required,
             "max_recover_attempts": self.max_recover_attempts,
             "judge_diff_chars": self.judge_diff_chars,
+            "revalidate_before_merge": self.revalidate_before_merge,
+            "retention": dict(self.retention),
+            "backup_keep": self.backup_keep,
+            "backup_dir": self.backup_dir,
+            "forecast_defer": self.forecast_defer,
+            "sandbox": self.sandbox,
             "harness_env_passthrough": list(self.harness_env_passthrough),
             "allow_mock_fallback": self.allow_mock_fallback,
             "protected_paths": list(self.protected_paths),
@@ -189,6 +203,8 @@ class Config:
                 path=raw["path"],
                 main_branch=raw.get("main_branch", DEFAULT_MAIN_BRANCH),
                 test_cmd=raw.get("test_cmd", DEFAULT_TEST_CMD),
+                daily_mission_limit=int(raw.get("daily_mission_limit", 0) or 0),
+                max_concurrent=int(raw.get("max_concurrent", 0) or 0),
             )
         workers = {}
         for name, raw in (data.get("workers") or {}).items():
@@ -234,6 +250,12 @@ class Config:
             judge_required=bool(data.get("judge_required", True)),
             max_recover_attempts=int(data.get("max_recover_attempts", 2)),
             judge_diff_chars=int(data.get("judge_diff_chars", 4000)),
+            revalidate_before_merge=bool(data.get("revalidate_before_merge", True)),
+            retention=dict(data.get("retention") or {}),
+            backup_keep=int(data.get("backup_keep", 7)),
+            backup_dir=str(data.get("backup_dir") or ""),
+            forecast_defer=bool(data.get("forecast_defer", True)),
+            sandbox=str(data.get("sandbox") or "off"),
             harness_env_passthrough=list(data.get("harness_env_passthrough") or []),
             allow_mock_fallback=bool(data.get("allow_mock_fallback", False)),
             protected_paths=(list(data["protected_paths"]) if data.get("protected_paths") is not None

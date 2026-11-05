@@ -259,6 +259,13 @@ def cmd_mission(args) -> None:
         print("usage: factory mission new <title> --project NAME|--repo PATH", file=sys.stderr)
         sys.exit(2)
     repo = _resolve_repo(cfg, args.project, args.repo)
+    from .scheduling import validate_deps
+
+    raw_deps = [d for a in (args.after or []) for d in a.split(",")]
+    try:
+        deps = validate_deps(f, "(new)", raw_deps)
+    except ValueError as e:
+        raise SystemExit(f"エラー: {e}") from None
     m = f.create_mission(
         title=args.title,
         kind=args.kind,
@@ -270,14 +277,17 @@ def cmd_mission(args) -> None:
         pass_score=args.pass_score,
         model=args.model,
         notes=args.notes,
+        depends_on=deps,
+        project=args.project,
     )
-    print(f"mission created: {m.id} ({m.status})")
+    print(f"mission created: {m.id} ({m.status})" + (f" after {', '.join(deps)}" if deps else ""))
 
 
 def cmd_run(args) -> None:
     cfg, f = _require_cfg()
     _resolve_worker_override(cfg, args.worker)
-    m = run_mission(f, args.mission, confirm=args.confirm, iterations=args.iterations, cfg=cfg)
+    m = run_mission(f, args.mission, confirm=args.confirm, iterations=args.iterations, cfg=cfg,
+                    ignore_deps=args.ignore_deps)
     print(f"status: {m.status}" + (f" ({m.halt_reason})" if m.halt_reason else ""))
     if m.halt_reason == "crash":
         sys.exit(1)  # 例外で中断 (reports/crash.txt)。スクリプトから検知できるように
@@ -288,6 +298,11 @@ def cmd_run_all(args) -> None:
     _resolve_worker_override(cfg, args.worker)
     ms = [m for m in f.list_missions() if m.status == "queued"]
     ms.sort(key=lambda m: (m.priority, m.id))
+    from .scheduling import select_runnable
+
+    ms, notes = select_runnable(f, cfg, ms)
+    for n in notes:
+        print(f"[skip] {n}")
     if not ms:
         print("実行待ちのミッションはありません")
         return
@@ -333,7 +348,9 @@ def cmd_validate(args) -> None:
         raise SystemExit(f"mission not found: {args.mission}")
     repo_path = Path(m.repo).resolve() if Path(m.repo).is_absolute() else f.root / m.repo
     wt = f.worktree(m.id) if f.worktree(m.id).exists() else repo_path
-    hr = evaluate(f, m, wt, env_passthrough=cfg.harness_env_passthrough)
+    from . import sandbox
+
+    hr = evaluate(f, m, wt, env_passthrough=cfg.harness_env_passthrough, exec_prefix=sandbox.prefix(cfg, "harness"))
     print(json.dumps(hr.to_dict(), ensure_ascii=False, indent=2))
     if args.judge:
         judge_data = run_judge(f, m, hr, "(validate コマンド)", Router(cfg, Usage(f.state_dir)))
@@ -386,6 +403,23 @@ def cmd_merge(args) -> None:
         if r.strip().lower() != "y":
             print("中止しました")
             return
+    if not args.no_revalidate:
+        from .supervisor import revalidate_on_base
+
+        rv = revalidate_on_base(f, cfg, m, repo_path, wt)
+        if rv["status"] == "conflict":
+            print(f"{m.id}: {rv['base']} と競合します。worktree ({wt}) で解消してから再実行してください",
+                  file=sys.stderr)
+            sys.exit(1)
+        if rv["status"] == "failed":
+            print(f"{m.id}: 最新 {rv['base']} を取り込むと検証に失敗しました → queued に戻しました (stale_base)",
+                  file=sys.stderr)
+            sys.exit(1)
+        if rv["status"] == "error":
+            print(f"{m.id}: 再検証できません ({rv.get('detail')})", file=sys.stderr)
+            sys.exit(1)
+        if rv["status"] == "passed":
+            print(f"最新 {rv['base']} を取り込んで再検証: PASS")
     r = gitx.merge_squash(repo_path, f"factory/{m.id}", mergegate.merge_message(m),
                           target_branch=_main_branch_for(cfg, m, repo_path))
     if r.code != 0:
@@ -406,6 +440,9 @@ def cmd_usage(args) -> None:
     if args.waste:
         print()
         print(u.waste_report(factory=f, days=args.days))
+    if args.forecast:
+        print()
+        print(u.forecast_report(cfg, factory=f))
 
 
 def cmd_bench(args) -> None:
@@ -775,6 +812,35 @@ def cmd_selftest(args) -> None:
     sys.exit(selftest_main(keep=args.keep, verbose=args.verbose))
 
 
+def cmd_gc(args) -> None:
+    cfg, f = _require_cfg()
+    from .housekeeping import gc
+
+    res = gc(f, cfg, dry_run=args.dry_run)
+    label = "削除予定" if args.dry_run else "削除"
+    for p in res["removed"]:
+        print(f"{label}: {p}")
+    for p in res["rotated"]:
+        print(f"ローテーション{'予定' if args.dry_run else ''}: {p}")
+    print(f"{label} {len(res['removed'])} / ローテーション {len(res['rotated'])}")
+
+
+def cmd_backup(args) -> None:
+    cfg, f = _require_cfg()
+    from .housekeeping import backup
+
+    dest = Path(args.to) if args.to else (Path(cfg.backup_dir) if cfg.backup_dir else None)
+    print(f"backup: {backup(f, dest_dir=dest, keep=args.keep)}")
+
+
+def cmd_restore(args) -> None:
+    from .housekeeping import restore
+
+    root = Path(args.root).resolve()
+    names = restore(root, Path(args.archive), force=args.force)
+    print(f"restored {len(names)} files into {root}")
+
+
 def cmd_config_check(args) -> None:
     from .configcheck import errors, validate
 
@@ -799,7 +865,10 @@ def cmd_config_check(args) -> None:
 
 # ---------------------------------------------------------------------------
 def build_parser() -> argparse.ArgumentParser:
+    from . import __version__
+
     p = argparse.ArgumentParser(prog="factory", description="社内ソフトウェアファクトリー オーケストレータ")
+    p.add_argument("--version", action="version", version=f"factory {__version__}")
     sub = p.add_subparsers(dest="cmd", required=True)
 
     sp = sub.add_parser("init", help="ファクトリを初期化")
@@ -925,6 +994,8 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--pass-score", type=int, default=80)
     sp.add_argument("--model", default="", help="ミッション単位のモデル上書き (例: sonnet)")
     sp.add_argument("--notes", default="")
+    sp.add_argument("--after", action="append", default=[], metavar="MISSION_ID",
+                    help="このミッションが main にマージされてから始める (複数可・カンマ区切り可)")
     sp.set_defaults(fn=cmd_mission)
 
     sp = sub.add_parser("run", help="ミッションを実行")
@@ -932,6 +1003,7 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--worker", default="auto")
     sp.add_argument("--confirm", action="store_true", help="高リスクミッションの実行許可")
     sp.add_argument("--iterations", type=int, default=None)
+    sp.add_argument("--ignore-deps", action="store_true", help="--after の前提を待たずに始める")
     sp.set_defaults(fn=cmd_run)
 
     sp = sub.add_parser("run-all", help="queued ミッションを順に実行")
@@ -958,6 +1030,21 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--verbose", action="store_true", help="各ステージの出力を表示")
     sp.set_defaults(fn=cmd_selftest)
 
+    sp = sub.add_parser("gc", help="保持期間を過ぎた生成物の掃除とログのローテーション")
+    sp.add_argument("--dry-run", action="store_true")
+    sp.set_defaults(fn=cmd_gc)
+
+    sp = sub.add_parser("backup", help="状態一式 (.factory / missions の要点 / holdout / seeds) を tar.gz に")
+    sp.add_argument("--to", default="", help="出力ディレクトリ (既定: backup_dir か .factory/backups)")
+    sp.add_argument("--keep", type=int, default=7, help="残す世代数")
+    sp.set_defaults(fn=cmd_backup)
+
+    sp = sub.add_parser("restore", help="バックアップから戻す")
+    sp.add_argument("archive")
+    sp.add_argument("--root", default=".", help="展開先のファクトリルート")
+    sp.add_argument("--force", action="store_true", help="既存の config を上書きする")
+    sp.set_defaults(fn=cmd_restore)
+
     sp = sub.add_parser("config", help="config.json の検証 (config check)")
     sp.add_argument("action", choices=["check"])
     sp.add_argument("--json", action="store_true")
@@ -973,11 +1060,14 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("mission")
     sp.add_argument("--yes", action="store_true")
     sp.add_argument("--force", action="store_true", help="done 以外 (検証未通過) のミッションもマージする")
+    sp.add_argument("--no-revalidate", action="store_true",
+                    help="最新 main を取り込んだ再検証を省く (既定は main が進んでいれば取り込んで再検証)")
     sp.set_defaults(fn=cmd_merge)
 
     sp = sub.add_parser("usage", help="使用量レポート")
     sp.add_argument("--days", type=int, default=7)
     sp.add_argument("--waste", action="store_true", help="無駄の兆候 (セッション分析) も表示")
+    sp.add_argument("--forecast", action="store_true", help="ワーカーごとに あと何ミッション回せるか の見込み")
     sp.set_defaults(fn=cmd_usage)
 
     sp = sub.add_parser("tick", help="ファクトリークロック 1巡 (取込→実行→出荷→カナリア)")

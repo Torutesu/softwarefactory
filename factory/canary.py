@@ -41,8 +41,11 @@ def run_canary(factory: Factory, mid: str, cfg=None, fix: bool = False, run_comp
     # カナリアも空の checkout。.env 等がないと build/run が偽失敗する
     gitx.seed_worktree_files(repo, cwt, getattr(cfg, "worktree_copy", None) if cfg else None)
     try:
+        from . import sandbox
+
         hr = evaluate(factory, m, cwt,
-                      env_passthrough=getattr(cfg, "harness_env_passthrough", ()) if cfg else ())
+                      env_passthrough=getattr(cfg, "harness_env_passthrough", ()) if cfg else (),
+                      exec_prefix=sandbox.prefix(cfg, "harness") if cfg else ())
     finally:
         gitx.remove_worktree(repo, cwt, force=True)
 

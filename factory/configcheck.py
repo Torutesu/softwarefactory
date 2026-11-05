@@ -32,7 +32,9 @@ RANGES = {
     "max_attempts": (1, 20),
     "max_recover_attempts": (0, 20),
     "judge_diff_chars": (0, 200_000),
+    "backup_keep": (0, 365),
 }
+PROJECT_RANGES = {"daily_mission_limit": (0, 10_000), "max_concurrent": (0, 64)}
 WORKER_RANGES = {
     "timeout": (1, None),
     "daily_call_limit": (0, None),
@@ -200,9 +202,14 @@ def validate(data: Any) -> List[Issue]:
                 issues.append(_unknown(p, k, pfields))
             elif pfields[k] is not None and not _type_ok(v, pfields[k]):
                 issues.append(Issue(p + k, "error", f"{_tname(pfields[k])}であること"))
+            elif k in PROJECT_RANGES:
+                issues += _range(p + k, v, *PROJECT_RANGES[k])
     ap = data.get("autopilot_project", "")
     if isinstance(ap, str) and ap and ap not in projects:
         issues.append(Issue("autopilot_project", "error", f"{ap!r} は projects に登録がありません"))
+    sb = data.get("sandbox", "off")
+    if isinstance(sb, str) and sb not in ("off", "harness", "all"):
+        issues.append(Issue("sandbox", "error", f"{sb!r} は off / harness / all"))
     url = data.get("notify_url", "")
     if isinstance(url, str) and url and not url.startswith(("http://", "https://")):
         issues.append(Issue("notify_url", "error", "http(s):// の URL であること"))

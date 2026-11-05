@@ -34,6 +34,51 @@ from .usage import Usage
 from .workers.router import Router
 
 
+def revalidate_on_base(factory: Factory, cfg: Config, m, repo: Path, wt: Path) -> dict:
+    """マージ直前に main を worktree へ取り込み、必要なら検証し直す。
+
+    戻り値 {"status": "uptodate" | "passed" | "skipped" | "failed" | "conflict" | "error", "base": ...}
+    failed のときはミッションを queued (halt_reason=stale_base) に戻す。
+    """
+    base = main_branch_for(cfg, m, repo)
+    if not wt.exists():
+        return {"status": "error", "base": base, "detail": "worktree がありません"}
+    try:
+        lock = factory.lock(m.id)
+        lock.__enter__()
+    except RuntimeError:
+        return {"status": "error", "base": base, "detail": "別プロセスが実行中"}
+    try:
+        return _revalidate_locked(factory, cfg, m, wt, base)
+    finally:
+        lock.__exit__(None, None, None)
+
+
+def _revalidate_locked(factory: Factory, cfg: Config, m, wt: Path, base: str) -> dict:
+    st = gitx.merge_base_into(wt, base)
+    if st in ("uptodate", "conflict", "error"):
+        if st == "conflict":
+            factory.event("merge_conflict_with_base", f"{m.id} base={base}")
+        return {"status": st, "base": base, "detail": "worktree に未コミット変更" if st == "error" else ""}
+    factory.event("base_merged_for_revalidation", f"{m.id} base={base}")
+    if not getattr(cfg, "revalidate_before_merge", True):
+        return {"status": "skipped", "base": base}
+    from .harness.runner import evaluate
+
+    from . import sandbox
+
+    hr = evaluate(factory, m, wt, env_passthrough=getattr(cfg, "harness_env_passthrough", ()),
+                  allow_record=False, exec_prefix=sandbox.prefix(cfg, "harness"))
+    if hr.ok:
+        return {"status": "passed", "base": base}
+    cur = factory.get_mission(m.id)
+    cur.status = "queued"
+    cur.halt_reason = "stale_base"
+    factory.save_mission(cur)
+    factory.event("mission_stale_base", f"{m.id} base={base}")
+    return {"status": "failed", "base": base}
+
+
 def _repo_path(factory: Factory, m) -> Path:
     return Path(m.repo).resolve() if Path(m.repo).is_absolute() else factory.root / m.repo
 
@@ -168,11 +213,27 @@ def step_execute(factory: Factory, cfg: Config, dry_run: bool) -> dict:
         elif 0.8 > r >= 0.5:
             nudges.append(f"{n}: 予算枠使用率 {int(r * 100)}%")
 
-    runnable = [m for m in queued if m.risk != "high"]
+    from .scheduling import record_start, select_runnable, project_of
+
     escalations = [f"{m.id}: high-risk は自動実行しません" for m in queued if m.risk == "high"]
+    runnable, sched_notes = select_runnable(factory, cfg, [m for m in queued if m.risk != "high"])
+    deferred = [n[len("deferred: "):] for n in sched_notes if n.startswith("deferred: ")]
+    escalations += [n for n in sched_notes if not n.startswith("deferred: ")]
     ran = []
     if dry_run:
-        return {"ran": [f"(dry) {m.id}" for m in runnable], "escalate": escalations, "nudges": nudges}
+        return {"ran": [f"(dry) {m.id}" for m in runnable], "escalate": escalations, "nudges": nudges,
+                "deferred": deferred}
+    # 枠の見込み: dev を任せられる実ワーカーが全員「あと 1 ミッションも回せない」見込みなら始めない
+    # (途中で枠切れになると反復が無駄になり、judge_unavailable / all_workers_failed で止まる)
+    if runnable and getattr(cfg, "forecast_defer", True):
+        fc = {r["worker"]: r for r in usage.forecast(cfg, factory)}
+        dev = [n for n in router.candidates("dev") if n in fc]
+        if dev and all(fc[n]["missions_fit"] < 1 for n in dev):
+            left = ", ".join(f"{n}: あと {fc[n]['missions_fit']:.1f} ミッション分" for n in dev)
+            deferred += [f"{m.id}: 枠不足の見込み ({left})" for m in runnable]
+            runnable = []
+    for m in runnable:
+        record_start(factory, project_of(cfg, m))
 
     def one(m) -> tuple:
         if loop_mod.SHUTDOWN.is_set():
@@ -206,7 +267,7 @@ def step_execute(factory: Factory, cfg: Config, dry_run: bool) -> dict:
     # failed (noprogress / 上限) と blocked (unreviewable) は人間に返す
     escalations += [f"{r['mission']}: {r['status']}" + (f" ({r['halt_reason']})" if r.get("halt_reason") else "")
                     for r in ran if r["status"] in ("failed", "blocked")]
-    return {"ran": ran, "escalate": escalations, "nudges": nudges}
+    return {"ran": ran, "escalate": escalations, "nudges": nudges, "deferred": deferred}
 
 
 def step_deliver(factory: Factory, cfg: Config, dry_run: bool) -> dict:
@@ -249,6 +310,20 @@ def step_deliver(factory: Factory, cfg: Config, dry_run: bool) -> dict:
         if dry_run:
             merged.append(f"(dry) {m.id} [{tier}]")
             canaries.append(f"(dry) {m.id}")
+            continue
+        # --- 最新 main での再検証 -------------------------------------------
+        # 並列ミッションでは、検証したときの main と今の main が違う。両方とも単独では通っても
+        # 組み合わせると壊れる (同じ関数を別々に変えた等)。マージ前に main を取り込んで検証し直す
+        rv = revalidate_on_base(factory, cfg, m, repo, wt)
+        if rv["status"] == "conflict":
+            escalations.append(f"{m.id}: main と競合するため自動マージできません ({rv['base']})。"
+                               f"worktree で解消してから `factory merge {m.id} --yes`")
+            continue
+        if rv["status"] == "failed":
+            escalations.append(f"{m.id}: 最新 {rv['base']} を取り込むと検証に失敗 → queued に戻して再実装 (stale_base)")
+            continue
+        if rv["status"] == "error":
+            escalations.append(f"{m.id}: 再検証の準備に失敗 ({rv.get('detail', '')})")
             continue
         r = gitx.merge_squash(repo, f"factory/{m.id}", mergegate.merge_message(m),
                               target_branch=main_branch_for(cfg, m, repo))
@@ -361,6 +436,34 @@ def step_recover(factory: Factory, cfg: Config, dry_run: bool) -> dict:
     return {"recovered": recovered, "escalate": escalate}
 
 
+def step_housekeeping(factory: Factory, cfg: Config, dry_run: bool) -> dict:
+    """1 日 1 回: 保持期間を過ぎた生成物の掃除・ログのローテーション・バックアップ。"""
+    from . import housekeeping
+
+    today = dt.date.today().isoformat()
+    if dry_run or (factory.state().get("housekeeping") or {}).get("last") == today:
+        return {"skipped": "dry-run" if dry_run else "already ran today"}
+    out: dict = {}
+    try:
+        g = housekeeping.gc(factory, cfg)
+        out["removed"], out["rotated"] = len(g["removed"]), len(g["rotated"])
+    except Exception as e:  # noqa — 掃除の失敗で tick を止めない
+        out["gc_error"] = str(e)[:200]
+    keep = int(getattr(cfg, "backup_keep", 7) or 0)
+    if keep > 0:
+        try:
+            dest = Path(cfg.backup_dir) if getattr(cfg, "backup_dir", "") else None
+            out["backup"] = str(housekeeping.backup(factory, dest_dir=dest, keep=keep))
+        except Exception as e:  # noqa
+            out["backup_error"] = str(e)[:200]
+
+    def _mark(st: dict) -> None:
+        st["housekeeping"] = {"last": today, **{k: v for k, v in out.items() if k != "backup"}}
+
+    factory._mutate_state(_mark)
+    return out
+
+
 def tick(factory: Factory, cfg: Config, dry_run: bool = False) -> dict:
     out = {"ts": dt.datetime.now().isoformat(timespec="seconds")}
     if pause_file(factory).exists():
@@ -369,6 +472,7 @@ def tick(factory: Factory, cfg: Config, dry_run: bool = False) -> dict:
         return {**out, "paused": True, "needs_human": [], "budget_nudges": [],
                 "execute": {"skipped": "paused"}, "deliver": {"skipped": "paused"}}
     out["recover"] = step_recover(factory, cfg, dry_run)
+    out["housekeeping"] = step_housekeeping(factory, cfg, dry_run)
     out["collect"] = step_collect(factory, cfg, dry_run)
     out["intake"] = step_intake(factory, cfg, dry_run)
     out["execute"] = step_execute(factory, cfg, dry_run)

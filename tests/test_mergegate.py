@@ -134,3 +134,68 @@ class TestBranchChanges(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestSpecScope(unittest.TestCase):
+    """spec の「スコープ」と実際の差分の突き合わせ。"""
+
+    def test_parse_scope(self):
+        from factory.spec_generator import parse_scope
+
+        spec = ("# t\n\n## スコープ\n- 触ってよい領域: `src/notes/`, `tests/`, `app.py`\n"
+                "- 触らない領域: `migrations/` と認証まわり\n\n## エスカレート条件\n- `x/` は無関係\n")
+        sc = parse_scope(spec)
+        self.assertEqual(sc["allowed"], ["src/notes/**", "tests/**", "app.py"])
+        self.assertEqual(sc["forbidden"], ["migrations/**"])
+        self.assertEqual(parse_scope("# no scope\n"), {"allowed": [], "forbidden": []})
+        self.assertEqual(parse_scope("## スコープ\n- 触ってよい領域: (未定)\n")["allowed"], [])
+
+    def _classify(self, spec: str, changes: dict):
+        import subprocess
+
+        from factory import mergegate
+        from factory.config import Config
+        from factory.state import Mission
+
+        root = Path(tempfile.mkdtemp())
+        repo = root / "repo"
+        repo.mkdir()
+        g = lambda *a: subprocess.run(["git", "-C", str(repo), *a], capture_output=True)  # noqa: E731
+        g("init", "-q", "-b", "main")
+        g("config", "user.email", "a@b")
+        g("config", "user.name", "a")
+        (repo / "app.py").write_text("x = 1\n", encoding="utf-8")
+        g("add", "-A")
+        g("commit", "-qm", "base")
+        g("checkout", "-qb", "factory/M1")
+        for name, text in changes.items():
+            (repo / name).parent.mkdir(parents=True, exist_ok=True)
+            (repo / name).write_text(text, encoding="utf-8")
+        g("add", "-A")
+        g("commit", "-qm", "c")
+        g("checkout", "-q", "main")
+        (root / "missions" / "M1").mkdir(parents=True)
+        (root / "missions" / "M1" / "spec.md").write_text(spec, encoding="utf-8")
+        return mergegate.classify(Config(root=str(root)), repo, "factory/M1",
+                                  Mission(id="M1", title="t", kind="update"))
+
+    SPEC = "## スコープ\n- 触ってよい領域: `app.py`, `tests/`\n- 触らない領域: `legacy_rules.py`\n"
+
+    def test_in_scope_stays_scoped(self):
+        cls = self._classify(self.SPEC, {"app.py": "x = 2\n", "tests/test_x.py": "def test(): pass\n"})
+        self.assertEqual(cls["tier"], "scoped")
+        self.assertEqual(cls["out_of_scope"], [])
+
+    def test_out_of_scope_needs_review(self):
+        cls = self._classify(self.SPEC, {"app.py": "x = 2\n", "other.py": "y = 1\n"})
+        self.assertEqual(cls["tier"], "behavioral")
+        self.assertEqual(cls["out_of_scope"], ["other.py"])
+        self.assertTrue(any("スコープ外" in r for r in cls["reasons"]))
+
+    def test_forbidden_is_sensitive(self):
+        cls = self._classify(self.SPEC, {"legacy_rules.py": "z = 1\n"})
+        self.assertEqual(cls["tier"], "sensitive")
+
+    def test_no_scope_section_no_constraint(self):
+        cls = self._classify("# t\n", {"other.py": "y = 1\n"})
+        self.assertEqual(cls["tier"], "scoped")

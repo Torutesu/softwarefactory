@@ -17,6 +17,7 @@ from .state import mission_cost_usd
 from .util import ensure_dir, load_json, locked, save_json, today_local
 
 DEFAULT_WINDOW_MINUTES = 300  # サブスク系の 5 時間窓を想定
+DEFAULT_CALLS_PER_MISSION = 4  # 履歴が無いときの見込み (spec + holdout + dev + judge)
 MAX_TS = 2000
 
 class Usage:
@@ -140,6 +141,54 @@ class Usage:
                 if t >= cutoff:
                     count += 1
         return count
+
+    # ------------------------------------------------------------------
+    # 枠の予測 (forecast)
+    # ------------------------------------------------------------------
+    def calls_per_mission(self, name: str, factory=None, days: int = 7) -> float:
+        """直近 days 日の「このワーカーの呼び出し数 / 実行したミッション数」。履歴が無ければ既定値。"""
+        calls = 0
+        for i in range(days):
+            day = (dt.date.today() - dt.timedelta(days=i)).isoformat()
+            calls += int(((self._day_dict(day).get("workers") or {}).get(name) or {}).get("calls", 0))
+        missions = 0
+        if factory is not None:
+            cutoff = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=days)).isoformat()
+            missions = sum(1 for m in factory.list_missions()
+                           if m.iterations and (m.iterations[0].started_utc or "") >= cutoff)
+        if calls == 0 or missions == 0:
+            return float(DEFAULT_CALLS_PER_MISSION)
+        return max(1.0, round(calls / missions, 1))
+
+    def forecast(self, cfg, factory=None, now: Optional[dt.datetime] = None) -> list:
+        """ワーカーごとに「あと何ミッション回せるか」の見込み。
+
+        行: {worker, per_mission, day_left, window_left, missions_fit} (上限なしは None / inf)。
+        """
+        rows = []
+        for name in cfg.worker_order:
+            wc = cfg.workers.get(name) or WorkerConfig(type=name)
+            if wc.type == "mock":
+                continue
+            per = self.calls_per_mission(name, factory)
+            day_left = (max(0, wc.daily_call_limit - self.calls_today(name)) if wc.daily_call_limit else None)
+            win_left = (max(0, wc.window_call_limit - self.window_calls(name, wc, now=now))
+                        if wc.window_call_limit else None)
+            lefts = [x for x in (day_left, win_left) if x is not None]
+            fit = float("inf") if not lefts else min(lefts) / per
+            rows.append({"worker": name, "per_mission": per, "day_left": day_left,
+                         "window_left": win_left, "missions_fit": fit})
+        return rows
+
+    def forecast_report(self, cfg, factory=None) -> str:
+        lines = ["## 枠の見込み (直近 7 日の 呼び出し数/ミッション から推定)", "",
+                 "| worker | 呼出/ミッション | 日次残り | 窓残り | あと何ミッション |", "|---|---|---|---|---|"]
+        for r in self.forecast(cfg, factory):
+            fit = "∞" if r["missions_fit"] == float("inf") else f"{r['missions_fit']:.1f}"
+            lines.append(f"| {r['worker']} | {r['per_mission']} | "
+                         f"{'-' if r['day_left'] is None else r['day_left']} | "
+                         f"{'-' if r['window_left'] is None else r['window_left']} | {fit} |")
+        return "\n".join(lines)
 
     # ------------------------------------------------------------------
     def report(self, days: int = 7) -> str:

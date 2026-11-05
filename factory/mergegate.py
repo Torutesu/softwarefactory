@@ -55,6 +55,28 @@ def _is_test_path(path: str) -> bool:
             or name.startswith("test_") or name.endswith(("_test.py", ".test.js", ".test.ts", ".spec.ts", ".spec.js")))
 
 
+def _glob_match(path: str, patterns) -> bool:
+    pl = path.replace("\\", "/")
+    for pat in patterns or []:
+        if fnmatch.fnmatch(pl, pat) or (pat.startswith("**/") and fnmatch.fnmatch(pl, pat[3:])):
+            return True
+    return False
+
+
+def _mission_scope(cfg: Config, m: Mission) -> dict:
+    """ミッションの spec.md からスコープを読む (読めなければ制約なし)。"""
+    from pathlib import Path
+
+    from .spec_generator import parse_scope
+
+    try:
+        root = Path(getattr(cfg, "root", "") or ".")
+        text = (root / "missions" / m.id / "spec.md").read_text(encoding="utf-8")
+    except (OSError, ValueError):
+        return {"allowed": [], "forbidden": []}
+    return parse_scope(text)
+
+
 def protected_matches(paths, patterns) -> list:
     """protected_paths (glob) に当たるパス。`**/x` はルート直下の x にも当たる。"""
     out = []
@@ -89,6 +111,9 @@ def classify(cfg: Config, repo, branch: str, m: Mission) -> dict:
     # 合否判定そのものを変えられるので sensitive 扱い
     protected = protected_matches(paths, getattr(cfg, "protected_paths", None) or [])
     removed_tests = [p for p in ch.get("deleted", []) if _is_test_path(p)]
+    scope = _mission_scope(cfg, m)
+    out_of_scope = ([p for p in paths if not _glob_match(p, scope["allowed"])] if scope["allowed"] else [])
+    forbidden = [p for p in paths if _glob_match(p, scope["forbidden"])]
     binary = list(ch.get("binary", []))
     reasons = []
     if protected:
@@ -97,10 +122,14 @@ def classify(cfg: Config, repo, branch: str, m: Mission) -> dict:
         reasons.append("テスト削除: " + ", ".join(removed_tests[:3]))
     if binary:
         reasons.append("バイナリ: " + ", ".join(binary[:3]))
+    if forbidden:
+        reasons.append("spec で触らない領域: " + ", ".join(forbidden[:3]))
+    if out_of_scope:
+        reasons.append("spec のスコープ外: " + ", ".join(out_of_scope[:3]))
     small = max(0, int(getattr(cfg, "small_change_lines", 50) or 0))
-    if sensitive or protected:
+    if sensitive or protected or forbidden:
         tier = "sensitive"
-    elif m.kind == "greenfield" or ch["lines"] > small or removed_tests or binary:
+    elif m.kind == "greenfield" or ch["lines"] > small or removed_tests or binary or out_of_scope:
         tier = "behavioral"
     elif paths and all(_is_meta(p) for p in paths):
         tier = "mechanical"
@@ -111,7 +140,8 @@ def classify(cfg: Config, repo, branch: str, m: Mission) -> dict:
         "files": ch["files"],
         "lines": ch["lines"],
         "paths": paths,
-        "sensitive_matches": sorted(set(sensitive) | set(protected)),
+        "sensitive_matches": sorted(set(sensitive) | set(protected) | set(forbidden)),
+        "out_of_scope": out_of_scope,
         "reasons": reasons,
         "review": REVIEW_SUGGESTION.get(tier, REVIEW_SUGGESTION["scoped"]),
     }

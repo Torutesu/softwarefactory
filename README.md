@@ -94,7 +94,15 @@ Harness → レポート → マージ) を即座に体験できます。
   "worktree_copy": [".env", ".env.*", "config/secrets.json", "*.local"],
   "noprogress_iterations": 2,
   "require_reviewable": true,
-  "judge_on_harness_fail": false
+  "judge_on_harness_fail": false,
+  "revalidate_before_merge": true,
+  "sandbox": "harness",
+  "backup_keep": 7,
+  "retention": { "reports_keep_runs": 5, "prompts_days": 30, "log_max_mb": 5 },
+  "projects": {
+    "my-svc": { "name": "my-svc", "path": "repos/my-svc", "main_branch": "main",
+                "daily_mission_limit": 10, "max_concurrent": 2 }
+  }
 }
 ```
 
@@ -151,6 +159,10 @@ judge の自己申告でしか判定できないため、`blocked` (`unreviewabl
   シナリオはスナップショットから実行。検証後にも照合し、食い違えば `holdout_tamper` で止める
 - **レポートの分離**: 失敗したシナリオのコマンドと出力は `holdout/<id>/runs/` にだけ書く
   (`missions/<id>/reports/` は worktree の親でワーカーから読めるため、ID・タイトル・判定のみ)
+- **macOS サンドボックス** (`sandbox`: `off` / `harness` / `all`): `sandbox-exec` で、harness
+  (build/test/run/シナリオ) と (`all` なら) dev ワーカーから `holdout/`・`.factory/`・`~/.ssh` 等の
+  認証情報を **読むことも書くこともできなく** する。同一ユーザーの chmod では防げない「読む」を塞ぐ。
+  Mac mini では `harness` 以上を推奨 (`all` は CLI ごとの動作確認をしてから)。macOS 以外では無効 (doctor が表示)
 
 ## 秘密情報の扱い (環境変数)
 
@@ -181,6 +193,12 @@ judge の自己申告でしか判定できないため、`blocked` (`unreviewabl
 - テストファイルの削除とバイナリファイル (行数に出ない) を含む差分は behavioral 以上
 - マージは main repo の追跡ファイルに未コミット変更があると拒否し、競合したら元の状態に戻す
   (`merge --squash` の競合は `merge --abort` では戻らないため)。`status=done` 以外は `--force` が必要
+- **spec のスコープとの突き合わせ**: spec.md の「## スコープ」にバッククォートで書いたパス
+  (触ってよい領域 / 触らない領域) と実際の差分を比べ、スコープ外の変更は behavioral 以上、
+  触らない領域への変更は sensitive にする
+- **最新 main での再検証** (`revalidate_before_merge`, 既定 true): 検証したときより main が進んで
+  いれば、マージ前に main を worktree に取り込んで検証し直す。並列ミッションが単独では通っても
+  組み合わせで壊れるケースを出荷前に止める。競合は needs_human、失敗は queued に戻す (`stale_base`)
 
 - 自動出荷 (tick level>=2) は `autonomy_level` と risk に加え、ティアの `merge_policy` が
   `auto` のときだけ実行します。`review` のティアは `needs_human` に「マージゲート」エントリが出ます
@@ -235,6 +253,18 @@ factory supervisor --interval 300     # 常駐で tick を回し続ける
 人間は `needs_human` に積まれた項目だけ見ます (高リスク・反復上限・修復ラウンド上限・
 予算枯渇・project 未確定の Seed)。要約は `notify_url` への Webhook POST でも受け取れます。
 
+実行順の制御:
+
+- **依存**: `mission new ... --after <id>` — 前提が main にマージされてから始める (前提が失敗したら
+  needs_human、循環は作成時に拒否)。今すぐ始めるなら `run <id> --ignore-deps`
+- **プロジェクト別クォータ**: `projects.<p>.daily_mission_limit` (1 日の開始数) / `max_concurrent`
+  (同時実行数)。超えた分は次の tick へ (`execute.deferred`)
+- **枠の見込み**: `usage --forecast` で「あと何ミッション回せるか」。dev を任せられる実ワーカー全員が
+  1 ミッション分の枠も残っていない見込みなら始めない (`forecast_defer`)。途中で枠切れになって反復を
+  無駄にしないため
+- **ハウスキーピング** (1 日 1 回): `factory gc` 相当 (保持期間を過ぎたレポート・prompt・ドラフト・
+  bench 結果の削除、ログのローテーション) と `factory backup` (`backup_keep` 世代)
+
 ## シグナル → Seed → ミッション (Ingest)
 
 外部/日常のシグナルを Seed 化する窓口が 3 種あります。
@@ -281,13 +311,13 @@ factory pr <id>              # origin + gh があれば PR 作成、無ければ
 | `ingest <src\|url> [--project] [--run]` | Seed 化 (+ ミッション作成~実行まで一括) |
 | `collect [--source] [--dry-run] [--list]` | 定時シグナル収集 → ドラフト化 (人間が `--promote` / `--dismiss`) |
 | `listen [--port] [--auto-create]` | Webhook リスナー起動 |
-| `mission new <title> --project NAME \|--repo PATH [--seed S] [--kind] [--model M]` | ミッション作成 |
-| `run <id> [--worker W] [--confirm] [--iterations N]` | 自律ループ実行 |
+| `mission new <title> --project NAME \|--repo PATH [--seed S] [--kind] [--model M] [--after ID]` | ミッション作成 (`--after`: 前提のマージ後に開始) |
+| `run <id> [--worker W] [--confirm] [--iterations N] [--ignore-deps]` | 自律ループ実行 |
 | `run-all [--parallel N]` | queued ミッションを順に/並列に実行 |
 | `validate <id> [--judge]` | 検証のみ (Worker を呼ばない) |
 | `holdout <list\|regen> <id>` | シナリオの一覧 / 再生成 (陳腐化リフレッシュ) |
 | `report <id>` | 最終レポート表示 |
-| `merge <id> [--yes] [--force]` | worktree を main に squash マージ (done 以外は --force) |
+| `merge <id> [--yes] [--force] [--no-revalidate]` | worktree を main に squash マージ (done 以外は --force。main が進んでいれば取り込んで再検証) |
 | `canary <id> [--fix] [--run-complete]` | main 上での再検証 + リカバリ |
 | `pr <id> [--base B]` | PR 作成 (gh 無ければ下書き) |
 | `compare-img a.png b.png` | 2枚の PNG 類似度 |
@@ -301,6 +331,11 @@ factory pr <id>              # origin + gh があれば PR 作成、無ければ
 | `needs-human [--ack KEY] [--all] [--json]` | 人間の判断待ちの台帳 (重複排除済み。通知は新規/解消のときだけ) |
 | `mission reset <id>` | 失敗/停止したミッションを queued に戻す |
 | `worktrees [--dry-run] [--force-failed]` | 完了/bench ミッションの worktree を掃除 |
+| `gc [--dry-run]` | 保持期間を過ぎた生成物の削除とログのローテーション (`retention`) |
+| `backup [--to DIR] [--keep N]` / `restore ARCHIVE [--force]` | 状態一式 (.factory・ミッションの要点・holdout・seeds) のバックアップと復元 |
+| `holdout rerecord <id>` | 手で直したシナリオを正として指紋を記録し直す |
+| `usage --forecast` | ワーカーごとの「あと何ミッション回せるか」 |
+| `--version` | バージョン表示 |
 
 緊急停止: `touch .factory/PAUSE` で tick は何もしなくなる (消せば次の tick から再開)。
 

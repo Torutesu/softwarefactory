@@ -9,6 +9,7 @@ from .config import Config
 from .harness.judge import run_judge
 from .harness.runner import HarnessResult, evaluate
 from .state import Factory, Iteration, Mission, mission_cost_usd, one_line
+from . import sandbox
 from . import util as _util
 from .util import load_json, load_text, now_utc_iso, save_text, tail
 from .usage import Usage
@@ -124,12 +125,19 @@ def _effective_cfg(cfg: Config, m: Mission) -> Config:
     return cfg2
 
 
-def run_mission(factory: Factory, mid: str, confirm: bool = False, iterations: Optional[int] = None, cfg: Optional[Config] = None) -> Mission:
+def run_mission(factory: Factory, mid: str, confirm: bool = False, iterations: Optional[int] = None,
+                cfg: Optional[Config] = None, ignore_deps: bool = False) -> Mission:
     m = factory.get_mission(mid)
     if not m:
         raise SystemExit(f"mission not found: {mid}")
     if m.risk == "high" and not confirm:
         raise SystemExit(f"高リスクミッション ({mid}) は --confirm を付けて実行してください")
+    if m.depends_on and not ignore_deps and m.status != "done":
+        from .scheduling import deps_state
+
+        st, why = deps_state(factory, m)
+        if st != "ready":
+            raise SystemExit(f"{mid} はまだ始められません: {why} (無視して始めるなら --ignore-deps)")
 
     with factory.lock(mid):
         # ロック待ちの間に別プロセスが完走させている可能性があるので、ロック内で読み直す
@@ -307,7 +315,7 @@ def _run_locked(factory: Factory, m: Mission, iterations: Optional[int], cfg: Op
             break
 
         hr = evaluate(factory, m, wt, env_passthrough=cfg.harness_env_passthrough,
-                      allow_record=False)  # dev 前に記録済み。無ければ消された疑い
+                      allow_record=False, exec_prefix=sandbox.prefix(cfg, "harness"))  # dev 前に記録済み。無ければ消された疑い
         if hr.holdout_tampered:
             it.status = "failed"
             it.note = "[holdout_tamper] " + "; ".join(hr.warnings) + "\n" + it.note

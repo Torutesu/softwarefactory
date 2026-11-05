@@ -202,9 +202,9 @@ def run_cmd(args, cwd=None, timeout=None, env=None) -> ProcResult:
             _ACTIVE_PROCS.discard(proc)
 
 
-def run_shell(cmd: str, cwd=None, timeout=None, env=None) -> ProcResult:
-    """シェル文字列 (/bin/bash -c) で実行。build.json やシナリオ検証用。"""
-    args = ["/bin/bash", "-lc", cmd]
+def run_shell(cmd: str, cwd=None, timeout=None, env=None, prefix=()) -> ProcResult:
+    """シェル文字列 (/bin/bash -c) で実行。build.json やシナリオ検証用。prefix は sandbox-exec 等。"""
+    args = list(prefix or ()) + ["/bin/bash", "-lc", cmd]
     return run_cmd(args, cwd=cwd, timeout=timeout, env=env)
 
 

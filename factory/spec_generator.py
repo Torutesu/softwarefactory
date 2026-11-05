@@ -6,6 +6,7 @@
 """
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import List
 
@@ -33,8 +34,8 @@ SPEC_TEMPLATE = """\
 (実装後にどう確認するか。HTTP / CLI / テストコマンドのいずれか)
 
 ## スコープ
-- 触ってよい領域: (ディレクトリ/モジュール。ここ以外の変更は差分を説明すること)
-- 触らない領域: (例: 認証・決済・マイグレーション・公開 API の互換性)
+- 触ってよい領域: (パスはバッククォートで列挙。例: `src/notes/`, `tests/`, `app.py`)
+- 触らない領域: (パスはバッククォートで列挙。例: `migrations/`, `src/auth/`。言葉での補足も可)
 
 ## エスカレート条件
 (実装担当が作業を止めて人間に返すべき状況。例: 仕様の矛盾、スコープ外の変更が必須、
@@ -103,10 +104,40 @@ def spec_prompt(factory: Factory, m: Mission, seed_dir: Path) -> str:
 ## 制約
 - 機能要件は 3〜8 個。各要件は「検証で確認できること」として書く。
 - スコープとエスカレート条件は空にしない (分からなければ保守的に狭く書く)。
+  スコープのパス (リポジトリ相対。ディレクトリは末尾 `/`、glob 可) は必ずバッククォートで囲む。
+  マージゲートがこれと実際の差分を突き合わせ、スコープ外の変更は人間レビューに回す。
 - spec.md は実装担当に渡る共有情報。ホールドアウトシナリオ (コード外の検証シナリオ) の内容はここに書かない。
 - 既存リポジトリのファイルを書き換えない (仕様作成のみ)。
 - 最終メッセージは 3〜5 行の要約 (主な判断ポイント)。
 """
+
+
+_SCOPE_ALLOW = ("触ってよい", "allowed", "in scope")
+_SCOPE_DENY = ("触らない", "forbidden", "out of scope")
+
+
+def _glob_of(token: str) -> str:
+    t = token.strip().lstrip("./")
+    return t + "**" if t.endswith("/") else t
+
+
+def parse_scope(spec_text: str) -> dict:
+    """spec.md の「## スコープ」節からパス (バッククォート) を取り出す。
+
+    戻り値 {"allowed": [glob], "forbidden": [glob]}。節が無い/パスが無ければ空リスト。
+    ディレクトリ (末尾 /) は配下すべてにマッチする glob に直す。
+    """
+    out = {"allowed": [], "forbidden": []}
+    sec = re.search(r"^##\s*(スコープ|Scope)\s*$(.*?)(?=^##\s|\Z)", spec_text or "", re.M | re.S | re.I)
+    if not sec:
+        return out
+    for line in sec.group(2).splitlines():
+        low = line.lower()
+        key = ("forbidden" if any(k in low for k in _SCOPE_DENY)
+               else "allowed" if any(k in low for k in _SCOPE_ALLOW) else None)
+        if key:
+            out[key] += [_glob_of(t) for t in re.findall(r"`([^`\s]+)`", line) if not t.startswith("(")]
+    return out
 
 
 def verify_spec(factory: Factory, m: Mission) -> List[str]:
