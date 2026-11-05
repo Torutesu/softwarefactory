@@ -167,6 +167,10 @@ class Router:
         results = []
         for i, name in enumerate(order):
             w = self.worker_for(name)
+            if purpose == "dev":
+                from .. import sandbox
+
+                w.exec_prefix = sandbox.prefix(self.cfg, "worker")
             sid = resume[1] if (resume and name == resume_worker) else None
             res = w.run(prompt, cwd, timeout, resume=sid)
             self.usage.record(name, res.seconds, res.ok, purpose, res.tokens_in, res.tokens_out, res.cost_usd)

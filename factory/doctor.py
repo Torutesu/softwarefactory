@@ -191,6 +191,15 @@ def run_checks() -> List[Check]:
     checks += _worker_checks(cfg)
     checks += _project_checks(cfg)
     checks += _state_checks(cfg)
+    from . import sandbox
+
+    st = sandbox.status(cfg)
+    if sandbox.mode_of(cfg) == "off":
+        checks.append(Check("sandbox", WARN if sys.platform == "darwin" else OK,
+                            "off" + (" (macOS では `sandbox: \"harness\"` 以上を推奨: holdout を読めなくする)"
+                                     if sys.platform == "darwin" else "")))
+    else:
+        checks.append(Check("sandbox", OK if sandbox.available() else WARN, st))
     return checks
 
 

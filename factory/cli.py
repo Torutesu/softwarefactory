@@ -348,7 +348,9 @@ def cmd_validate(args) -> None:
         raise SystemExit(f"mission not found: {args.mission}")
     repo_path = Path(m.repo).resolve() if Path(m.repo).is_absolute() else f.root / m.repo
     wt = f.worktree(m.id) if f.worktree(m.id).exists() else repo_path
-    hr = evaluate(f, m, wt, env_passthrough=cfg.harness_env_passthrough)
+    from . import sandbox
+
+    hr = evaluate(f, m, wt, env_passthrough=cfg.harness_env_passthrough, exec_prefix=sandbox.prefix(cfg, "harness"))
     print(json.dumps(hr.to_dict(), ensure_ascii=False, indent=2))
     if args.judge:
         judge_data = run_judge(f, m, hr, "(validate コマンド)", Router(cfg, Usage(f.state_dir)))

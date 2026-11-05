@@ -9,6 +9,7 @@ from .config import Config
 from .harness.judge import run_judge
 from .harness.runner import HarnessResult, evaluate
 from .state import Factory, Iteration, Mission, mission_cost_usd, one_line
+from . import sandbox
 from . import util as _util
 from .util import load_json, load_text, now_utc_iso, save_text, tail
 from .usage import Usage
@@ -314,7 +315,7 @@ def _run_locked(factory: Factory, m: Mission, iterations: Optional[int], cfg: Op
             break
 
         hr = evaluate(factory, m, wt, env_passthrough=cfg.harness_env_passthrough,
-                      allow_record=False)  # dev 前に記録済み。無ければ消された疑い
+                      allow_record=False, exec_prefix=sandbox.prefix(cfg, "harness"))  # dev 前に記録済み。無ければ消された疑い
         if hr.holdout_tampered:
             it.status = "failed"
             it.note = "[holdout_tamper] " + "; ".join(hr.warnings) + "\n" + it.note

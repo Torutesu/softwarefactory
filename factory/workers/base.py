@@ -118,7 +118,8 @@ class Worker:
     # ------------------------------------------------------------------
     def run(self, prompt: str, cwd: Path, timeout: Optional[int] = None, resume: Optional[str] = None) -> WorkerResult:
         timeout = timeout or self.cfg.timeout
-        args = self.build_args(prompt, resume=resume)
+        # Router が用途に応じて設定する前置き (macOS の sandbox-exec 等。無ければ [])
+        args = list(getattr(self, "exec_prefix", None) or []) + self.build_args(prompt, resume=resume)
         pr = run_cmd(args, cwd=cwd, timeout=timeout, env=child_env_for(self.cfg))
         res = self.parse_output(pr)
         res.seconds = pr.seconds

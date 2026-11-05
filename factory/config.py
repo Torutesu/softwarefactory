@@ -136,6 +136,7 @@ class Config:
     backup_keep: int = 7  # tick の日次バックアップを何世代残すか (0 で日次バックアップしない)
     backup_dir: str = ""  # 空なら .factory/backups
     forecast_defer: bool = True  # dev の実ワーカー全員が枠不足の見込みならミッションを始めない
+    sandbox: str = "off"  # off | harness | all — macOS sandbox-exec で holdout/.factory/認証情報を読めなくする
     harness_env_passthrough: List[str] = field(default_factory=list)  # build/test/シナリオに渡す秘密っぽい環境変数
     allow_mock_fallback: bool = False  # use_worker=auto のとき mock を最後のフォールバックに使うか
     protected_paths: List[str] = field(
@@ -183,6 +184,7 @@ class Config:
             "backup_keep": self.backup_keep,
             "backup_dir": self.backup_dir,
             "forecast_defer": self.forecast_defer,
+            "sandbox": self.sandbox,
             "harness_env_passthrough": list(self.harness_env_passthrough),
             "allow_mock_fallback": self.allow_mock_fallback,
             "protected_paths": list(self.protected_paths),
@@ -253,6 +255,7 @@ class Config:
             backup_keep=int(data.get("backup_keep", 7)),
             backup_dir=str(data.get("backup_dir") or ""),
             forecast_defer=bool(data.get("forecast_defer", True)),
+            sandbox=str(data.get("sandbox") or "off"),
             harness_env_passthrough=list(data.get("harness_env_passthrough") or []),
             allow_mock_fallback=bool(data.get("allow_mock_fallback", False)),
             protected_paths=(list(data["protected_paths"]) if data.get("protected_paths") is not None

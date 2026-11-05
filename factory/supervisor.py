@@ -65,8 +65,10 @@ def _revalidate_locked(factory: Factory, cfg: Config, m, wt: Path, base: str) ->
         return {"status": "skipped", "base": base}
     from .harness.runner import evaluate
 
+    from . import sandbox
+
     hr = evaluate(factory, m, wt, env_passthrough=getattr(cfg, "harness_env_passthrough", ()),
-                  allow_record=False)
+                  allow_record=False, exec_prefix=sandbox.prefix(cfg, "harness"))
     if hr.ok:
         return {"status": "passed", "base": base}
     cur = factory.get_mission(m.id)

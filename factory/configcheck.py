@@ -207,6 +207,9 @@ def validate(data: Any) -> List[Issue]:
     ap = data.get("autopilot_project", "")
     if isinstance(ap, str) and ap and ap not in projects:
         issues.append(Issue("autopilot_project", "error", f"{ap!r} は projects に登録がありません"))
+    sb = data.get("sandbox", "off")
+    if isinstance(sb, str) and sb not in ("off", "harness", "all"):
+        issues.append(Issue("sandbox", "error", f"{sb!r} は off / harness / all"))
     url = data.get("notify_url", "")
     if isinstance(url, str) and url and not url.startswith(("http://", "https://")):
         issues.append(Issue("notify_url", "error", "http(s):// の URL であること"))
