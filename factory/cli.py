@@ -792,6 +792,35 @@ def cmd_selftest(args) -> None:
     sys.exit(selftest_main(keep=args.keep, verbose=args.verbose))
 
 
+def cmd_gc(args) -> None:
+    cfg, f = _require_cfg()
+    from .housekeeping import gc
+
+    res = gc(f, cfg, dry_run=args.dry_run)
+    label = "削除予定" if args.dry_run else "削除"
+    for p in res["removed"]:
+        print(f"{label}: {p}")
+    for p in res["rotated"]:
+        print(f"ローテーション{'予定' if args.dry_run else ''}: {p}")
+    print(f"{label} {len(res['removed'])} / ローテーション {len(res['rotated'])}")
+
+
+def cmd_backup(args) -> None:
+    cfg, f = _require_cfg()
+    from .housekeeping import backup
+
+    dest = Path(args.to) if args.to else (Path(cfg.backup_dir) if cfg.backup_dir else None)
+    print(f"backup: {backup(f, dest_dir=dest, keep=args.keep)}")
+
+
+def cmd_restore(args) -> None:
+    from .housekeeping import restore
+
+    root = Path(args.root).resolve()
+    names = restore(root, Path(args.archive), force=args.force)
+    print(f"restored {len(names)} files into {root}")
+
+
 def cmd_config_check(args) -> None:
     from .configcheck import errors, validate
 
@@ -974,6 +1003,21 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--keep", action="store_true", help="作業ディレクトリを残す")
     sp.add_argument("--verbose", action="store_true", help="各ステージの出力を表示")
     sp.set_defaults(fn=cmd_selftest)
+
+    sp = sub.add_parser("gc", help="保持期間を過ぎた生成物の掃除とログのローテーション")
+    sp.add_argument("--dry-run", action="store_true")
+    sp.set_defaults(fn=cmd_gc)
+
+    sp = sub.add_parser("backup", help="状態一式 (.factory / missions の要点 / holdout / seeds) を tar.gz に")
+    sp.add_argument("--to", default="", help="出力ディレクトリ (既定: backup_dir か .factory/backups)")
+    sp.add_argument("--keep", type=int, default=7, help="残す世代数")
+    sp.set_defaults(fn=cmd_backup)
+
+    sp = sub.add_parser("restore", help="バックアップから戻す")
+    sp.add_argument("archive")
+    sp.add_argument("--root", default=".", help="展開先のファクトリルート")
+    sp.add_argument("--force", action="store_true", help="既存の config を上書きする")
+    sp.set_defaults(fn=cmd_restore)
 
     sp = sub.add_parser("config", help="config.json の検証 (config check)")
     sp.add_argument("action", choices=["check"])

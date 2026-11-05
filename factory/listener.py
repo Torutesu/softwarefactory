@@ -82,12 +82,9 @@ class Listener:
     def log(self, msg: str) -> None:
         line = f"[{now_utc_iso()}] {msg}"
         print(line, flush=True)
-        try:
-            self.log_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(self.log_path, "a", encoding="utf-8") as f:
-                f.write(line + "\n")
-        except OSError:
-            pass
+        from .housekeeping import append_log
+
+        append_log(self.log_path, line)  # サイズでローテーション (無人運転で肥大化させない)
 
     # ------------------------------------------------------------------
     @staticmethod

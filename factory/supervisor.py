@@ -418,6 +418,34 @@ def step_recover(factory: Factory, cfg: Config, dry_run: bool) -> dict:
     return {"recovered": recovered, "escalate": escalate}
 
 
+def step_housekeeping(factory: Factory, cfg: Config, dry_run: bool) -> dict:
+    """1 日 1 回: 保持期間を過ぎた生成物の掃除・ログのローテーション・バックアップ。"""
+    from . import housekeeping
+
+    today = dt.date.today().isoformat()
+    if dry_run or (factory.state().get("housekeeping") or {}).get("last") == today:
+        return {"skipped": "dry-run" if dry_run else "already ran today"}
+    out: dict = {}
+    try:
+        g = housekeeping.gc(factory, cfg)
+        out["removed"], out["rotated"] = len(g["removed"]), len(g["rotated"])
+    except Exception as e:  # noqa — 掃除の失敗で tick を止めない
+        out["gc_error"] = str(e)[:200]
+    keep = int(getattr(cfg, "backup_keep", 7) or 0)
+    if keep > 0:
+        try:
+            dest = Path(cfg.backup_dir) if getattr(cfg, "backup_dir", "") else None
+            out["backup"] = str(housekeeping.backup(factory, dest_dir=dest, keep=keep))
+        except Exception as e:  # noqa
+            out["backup_error"] = str(e)[:200]
+
+    def _mark(st: dict) -> None:
+        st["housekeeping"] = {"last": today, **{k: v for k, v in out.items() if k != "backup"}}
+
+    factory._mutate_state(_mark)
+    return out
+
+
 def tick(factory: Factory, cfg: Config, dry_run: bool = False) -> dict:
     out = {"ts": dt.datetime.now().isoformat(timespec="seconds")}
     if pause_file(factory).exists():
@@ -426,6 +454,7 @@ def tick(factory: Factory, cfg: Config, dry_run: bool = False) -> dict:
         return {**out, "paused": True, "needs_human": [], "budget_nudges": [],
                 "execute": {"skipped": "paused"}, "deliver": {"skipped": "paused"}}
     out["recover"] = step_recover(factory, cfg, dry_run)
+    out["housekeeping"] = step_housekeeping(factory, cfg, dry_run)
     out["collect"] = step_collect(factory, cfg, dry_run)
     out["intake"] = step_intake(factory, cfg, dry_run)
     out["execute"] = step_execute(factory, cfg, dry_run)

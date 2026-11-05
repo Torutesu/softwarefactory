@@ -32,6 +32,7 @@ RANGES = {
     "max_attempts": (1, 20),
     "max_recover_attempts": (0, 20),
     "judge_diff_chars": (0, 200_000),
+    "backup_keep": (0, 365),
 }
 WORKER_RANGES = {
     "timeout": (1, None),
