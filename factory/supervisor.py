@@ -221,6 +221,15 @@ def step_execute(factory: Factory, cfg: Config, dry_run: bool) -> dict:
     if dry_run:
         return {"ran": [f"(dry) {m.id}" for m in runnable], "escalate": escalations, "nudges": nudges,
                 "deferred": deferred}
+    # 枠の見込み: dev を任せられる実ワーカーが全員「あと 1 ミッションも回せない」見込みなら始めない
+    # (途中で枠切れになると反復が無駄になり、judge_unavailable / all_workers_failed で止まる)
+    if runnable and getattr(cfg, "forecast_defer", True):
+        fc = {r["worker"]: r for r in usage.forecast(cfg, factory)}
+        dev = [n for n in router.candidates("dev") if n in fc]
+        if dev and all(fc[n]["missions_fit"] < 1 for n in dev):
+            left = ", ".join(f"{n}: あと {fc[n]['missions_fit']:.1f} ミッション分" for n in dev)
+            deferred += [f"{m.id}: 枠不足の見込み ({left})" for m in runnable]
+            runnable = []
     for m in runnable:
         record_start(factory, project_of(cfg, m))
 

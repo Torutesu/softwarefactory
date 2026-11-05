@@ -155,7 +155,9 @@ def _state_checks(cfg: Config) -> List[Check]:
 
 
 def _env_checks() -> List[Check]:
-    out = []
+    from . import __version__
+
+    out = [Check("version", OK, f"factory {__version__}")]
     if hasattr(os, "geteuid") and os.geteuid() == 0:
         out.append(Check("user", ERROR, "root で実行しています (holdout の権限封印が効きません。一般ユーザーで運用)"))
     else:

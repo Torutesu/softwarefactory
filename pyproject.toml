@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "softwarefactory"
-version = "0.1.0"
+dynamic = ["version"]
 description = "社内ソフトウェアファクトリー オーケストレータ (Spec/Holdout/Loop/Judge/Worker-Router)"
 requires-python = ">=3.9"
 readme = "README.md"
@@ -14,3 +14,6 @@ factory = "factory.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["factory*"]
+
+[tool.setuptools.dynamic]
+version = {attr = "factory.__version__"}

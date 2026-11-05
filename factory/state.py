@@ -115,6 +115,23 @@ def one_line(s: str, limit: int = 200) -> str:
     return " ".join(str(s or "").split())[:limit]
 
 
+STATE_SCHEMA = 2
+
+
+def migrate_state(st: dict) -> dict:
+    """古い state.json を現在の形に寄せる (その場で書き換える。保存は呼び出し側の次の save)。
+
+    v1 → v2: needs_human 台帳・project_starts・housekeeping を追加 (中身は空で始める)。
+    新しい版が書いた state (version > STATE_SCHEMA) はそのまま読む (未知キーは触らない)。
+    """
+    ver = int(st.get("version") or 1)
+    if ver < 2:
+        st.setdefault("needs_human", {})
+        st.setdefault("project_starts", {})
+        st["version"] = 2
+    return st
+
+
 def new_mission_id() -> str:
     return dt.datetime.now().strftime("M%Y%m%d-%H%M%S") + "-" + secrets.token_hex(2)
 
@@ -195,7 +212,7 @@ class Factory:
             st = {}
         if not isinstance(st, dict):
             st = {}
-        st.setdefault("version", 1)
+        migrate_state(st)
         st.setdefault("missions", {})
         st.setdefault("signals", [])
         st.setdefault("events", [])

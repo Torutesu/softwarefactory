@@ -438,6 +438,9 @@ def cmd_usage(args) -> None:
     if args.waste:
         print()
         print(u.waste_report(factory=f, days=args.days))
+    if args.forecast:
+        print()
+        print(u.forecast_report(cfg, factory=f))
 
 
 def cmd_bench(args) -> None:
@@ -860,7 +863,10 @@ def cmd_config_check(args) -> None:
 
 # ---------------------------------------------------------------------------
 def build_parser() -> argparse.ArgumentParser:
+    from . import __version__
+
     p = argparse.ArgumentParser(prog="factory", description="社内ソフトウェアファクトリー オーケストレータ")
+    p.add_argument("--version", action="version", version=f"factory {__version__}")
     sub = p.add_subparsers(dest="cmd", required=True)
 
     sp = sub.add_parser("init", help="ファクトリを初期化")
@@ -1059,6 +1065,7 @@ def build_parser() -> argparse.ArgumentParser:
     sp = sub.add_parser("usage", help="使用量レポート")
     sp.add_argument("--days", type=int, default=7)
     sp.add_argument("--waste", action="store_true", help="無駄の兆候 (セッション分析) も表示")
+    sp.add_argument("--forecast", action="store_true", help="ワーカーごとに あと何ミッション回せるか の見込み")
     sp.set_defaults(fn=cmd_usage)
 
     sp = sub.add_parser("tick", help="ファクトリークロック 1巡 (取込→実行→出荷→カナリア)")
