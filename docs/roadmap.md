@@ -144,9 +144,13 @@ Firecrawl「LLM Token Optimization: 9 Techniques in the Order to Apply Them」(2
   holdout の改ざん検知・スナップショット実行、環境変数の秘密除去、mock フォールバック禁止、
   マージ状態の構造化、protected_paths、listener の CSRF/rebinding 対策、孤児回収、SIGTERM 停止、
   PAUSE、config 検証、`doctor` / `selftest` / `needs-human`
-- 次候補: 封印の macOS sandbox-exec 化 (root 運用でも効く隔離・holdout を「読む」ことも塞ぐ) /
-  spec のスコープと差分の突き合わせ / ログローテーションと保持期間 / バックアップ /
-  マージ前の最新 main での再検証 / ミッション DAG / プロジェクト別クォータ / 枠の予測 / バージョニング
+- [x] **0.3.0 (2026-11)**: macOS sandbox-exec (`sandbox`)・spec のスコープと差分の突き合わせ・
+  ログローテーション/保持期間 (`gc`)・バックアップ/復元・マージ前の最新 main での再検証・
+  ミッション依存 (`--after`)・プロジェクト別クォータ・枠の予測 (`usage --forecast`)・`--version` と
+  state スキーマ移行 (CHANGELOG.md)
+- 次候補: Linux 用の隔離 (bubblewrap / 別ユーザー実行) / sandbox `all` の CLI ごとの実機検証と既定化 /
+  spec のスコープを dev prompt に「触ってよい領域」として明示 / 予測に応じた purpose_workers の自動切替 /
+  バックアップの暗号化と外部ストレージ転送
 
 ## 保守メモ
 

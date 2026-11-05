@@ -56,6 +56,20 @@ cd ~/factory && ~/softwarefactory/bin/factory doctor   # root/CLI/ログイン/g
   その場で止め、途中のミッションは queued に戻る (次の起動で再実行)。電源断で残ったものも
   次の tick が回収する (`halt_reason=recovered`)
 
+### サンドボックスとバックアップ (推奨設定)
+
+`.factory/config.json`:
+
+```json
+{ "sandbox": "harness", "backup_keep": 7, "backup_dir": "/Volumes/Backup/factory" }
+```
+
+- `sandbox: "harness"` で build/test/シナリオから holdout と認証情報を読めなくする (macOS の
+  `sandbox-exec`)。`"all"` は dev ワーカー (claude/codex) も包む。CLI のログインやキャッシュは
+  壊さない設計だが、使う CLI ごとに `factory selftest` と実ミッション 1 件で確認してから上げる
+- バックアップは tick が 1 日 1 回 `backup_dir` (省略時 `.factory/backups`) に作る。外付けや
+  Time Machine 対象のボリュームを指定する。復元は `factory restore <archive> --root ~/factory`
+
 ### 更新 (本番反映後の Mac mini 側)
 
 ```bash
