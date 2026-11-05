@@ -259,6 +259,13 @@ def cmd_mission(args) -> None:
         print("usage: factory mission new <title> --project NAME|--repo PATH", file=sys.stderr)
         sys.exit(2)
     repo = _resolve_repo(cfg, args.project, args.repo)
+    from .scheduling import validate_deps
+
+    raw_deps = [d for a in (args.after or []) for d in a.split(",")]
+    try:
+        deps = validate_deps(f, "(new)", raw_deps)
+    except ValueError as e:
+        raise SystemExit(f"エラー: {e}") from None
     m = f.create_mission(
         title=args.title,
         kind=args.kind,
@@ -270,14 +277,17 @@ def cmd_mission(args) -> None:
         pass_score=args.pass_score,
         model=args.model,
         notes=args.notes,
+        depends_on=deps,
+        project=args.project,
     )
-    print(f"mission created: {m.id} ({m.status})")
+    print(f"mission created: {m.id} ({m.status})" + (f" after {', '.join(deps)}" if deps else ""))
 
 
 def cmd_run(args) -> None:
     cfg, f = _require_cfg()
     _resolve_worker_override(cfg, args.worker)
-    m = run_mission(f, args.mission, confirm=args.confirm, iterations=args.iterations, cfg=cfg)
+    m = run_mission(f, args.mission, confirm=args.confirm, iterations=args.iterations, cfg=cfg,
+                    ignore_deps=args.ignore_deps)
     print(f"status: {m.status}" + (f" ({m.halt_reason})" if m.halt_reason else ""))
     if m.halt_reason == "crash":
         sys.exit(1)  # 例外で中断 (reports/crash.txt)。スクリプトから検知できるように
@@ -288,6 +298,11 @@ def cmd_run_all(args) -> None:
     _resolve_worker_override(cfg, args.worker)
     ms = [m for m in f.list_missions() if m.status == "queued"]
     ms.sort(key=lambda m: (m.priority, m.id))
+    from .scheduling import select_runnable
+
+    ms, notes = select_runnable(f, cfg, ms)
+    for n in notes:
+        print(f"[skip] {n}")
     if not ms:
         print("実行待ちのミッションはありません")
         return
@@ -971,6 +986,8 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--pass-score", type=int, default=80)
     sp.add_argument("--model", default="", help="ミッション単位のモデル上書き (例: sonnet)")
     sp.add_argument("--notes", default="")
+    sp.add_argument("--after", action="append", default=[], metavar="MISSION_ID",
+                    help="このミッションが main にマージされてから始める (複数可・カンマ区切り可)")
     sp.set_defaults(fn=cmd_mission)
 
     sp = sub.add_parser("run", help="ミッションを実行")
@@ -978,6 +995,7 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--worker", default="auto")
     sp.add_argument("--confirm", action="store_true", help="高リスクミッションの実行許可")
     sp.add_argument("--iterations", type=int, default=None)
+    sp.add_argument("--ignore-deps", action="store_true", help="--after の前提を待たずに始める")
     sp.set_defaults(fn=cmd_run)
 
     sp = sub.add_parser("run-all", help="queued ミッションを順に実行")

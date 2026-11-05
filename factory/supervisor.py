@@ -211,11 +211,18 @@ def step_execute(factory: Factory, cfg: Config, dry_run: bool) -> dict:
         elif 0.8 > r >= 0.5:
             nudges.append(f"{n}: 予算枠使用率 {int(r * 100)}%")
 
-    runnable = [m for m in queued if m.risk != "high"]
+    from .scheduling import record_start, select_runnable, project_of
+
     escalations = [f"{m.id}: high-risk は自動実行しません" for m in queued if m.risk == "high"]
+    runnable, sched_notes = select_runnable(factory, cfg, [m for m in queued if m.risk != "high"])
+    deferred = [n[len("deferred: "):] for n in sched_notes if n.startswith("deferred: ")]
+    escalations += [n for n in sched_notes if not n.startswith("deferred: ")]
     ran = []
     if dry_run:
-        return {"ran": [f"(dry) {m.id}" for m in runnable], "escalate": escalations, "nudges": nudges}
+        return {"ran": [f"(dry) {m.id}" for m in runnable], "escalate": escalations, "nudges": nudges,
+                "deferred": deferred}
+    for m in runnable:
+        record_start(factory, project_of(cfg, m))
 
     def one(m) -> tuple:
         if loop_mod.SHUTDOWN.is_set():
@@ -249,7 +256,7 @@ def step_execute(factory: Factory, cfg: Config, dry_run: bool) -> dict:
     # failed (noprogress / 上限) と blocked (unreviewable) は人間に返す
     escalations += [f"{r['mission']}: {r['status']}" + (f" ({r['halt_reason']})" if r.get("halt_reason") else "")
                     for r in ran if r["status"] in ("failed", "blocked")]
-    return {"ran": ran, "escalate": escalations, "nudges": nudges}
+    return {"ran": ran, "escalate": escalations, "nudges": nudges, "deferred": deferred}
 
 
 def step_deliver(factory: Factory, cfg: Config, dry_run: bool) -> dict:

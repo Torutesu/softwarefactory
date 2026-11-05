@@ -58,6 +58,7 @@ class Mission:
     merged_tier: str = ""
     repair_of: str = ""  # カナリア修復ミッションの親 ID
     recover_count: int = 0  # 孤児 (実行途中で落ちた) から queued に戻した回数
+    depends_on: List[str] = field(default_factory=list)  # これらが main にマージされてから始める
     halt_reason: str = ""  # 打ち切り理由: noprogress | max_iterations | all_workers_failed | unreviewable | holdout_leak | holdout_tamper | holdout_failed | judge_unavailable | crash | interrupted | shutdown | recovered | crash_loop | stale_base
     created_utc: str = field(default_factory=now_utc_iso)
     updated_utc: str = field(default_factory=now_utc_iso)
@@ -256,6 +257,8 @@ class Factory:
         pass_score: int = 80,
         model: str = "",
         notes: str = "",
+        depends_on: Optional[List[str]] = None,
+        project: str = "",
     ) -> Mission:
         mid = new_mission_id()
         mdir = self.mission_dir(mid)
@@ -273,6 +276,8 @@ class Factory:
             pass_score=pass_score,
             model=model,
             notes=notes,
+            depends_on=list(depends_on or []),
+            project=project,
         )
         self.save_mission(m)
         self.index_mission(m)

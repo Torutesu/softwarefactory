@@ -124,12 +124,19 @@ def _effective_cfg(cfg: Config, m: Mission) -> Config:
     return cfg2
 
 
-def run_mission(factory: Factory, mid: str, confirm: bool = False, iterations: Optional[int] = None, cfg: Optional[Config] = None) -> Mission:
+def run_mission(factory: Factory, mid: str, confirm: bool = False, iterations: Optional[int] = None,
+                cfg: Optional[Config] = None, ignore_deps: bool = False) -> Mission:
     m = factory.get_mission(mid)
     if not m:
         raise SystemExit(f"mission not found: {mid}")
     if m.risk == "high" and not confirm:
         raise SystemExit(f"高リスクミッション ({mid}) は --confirm を付けて実行してください")
+    if m.depends_on and not ignore_deps and m.status != "done":
+        from .scheduling import deps_state
+
+        st, why = deps_state(factory, m)
+        if st != "ready":
+            raise SystemExit(f"{mid} はまだ始められません: {why} (無視して始めるなら --ignore-deps)")
 
     with factory.lock(mid):
         # ロック待ちの間に別プロセスが完走させている可能性があるので、ロック内で読み直す

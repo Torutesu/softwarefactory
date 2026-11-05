@@ -94,6 +94,8 @@ class ProjectConfig:
     path: str  # リポジトリのルート (root からの相対 or 絶対パス)
     main_branch: str = DEFAULT_MAIN_BRANCH
     test_cmd: str = DEFAULT_TEST_CMD
+    daily_mission_limit: int = 0  # 1 日に開始するミッション数の上限 (0 = 無制限)
+    max_concurrent: int = 0  # 同時に実行中のミッション数の上限 (0 = 無制限)
 
     @property
     def holdout_dir(self) -> str:
@@ -197,6 +199,8 @@ class Config:
                 path=raw["path"],
                 main_branch=raw.get("main_branch", DEFAULT_MAIN_BRANCH),
                 test_cmd=raw.get("test_cmd", DEFAULT_TEST_CMD),
+                daily_mission_limit=int(raw.get("daily_mission_limit", 0) or 0),
+                max_concurrent=int(raw.get("max_concurrent", 0) or 0),
             )
         workers = {}
         for name, raw in (data.get("workers") or {}).items():
