@@ -163,7 +163,7 @@ struct HeroCard: View {
 
             VStack(spacing: 12) {
                 OrbIcon(size: 72)
-                Text("Keyact AI").font(KA.F.hero).foregroundStyle(Color(hex: 0x11161D))
+                Text("Shogun AI").font(KA.F.hero).foregroundStyle(Color(hex: 0x11161D))
             }
             .offset(y: -6)
 
@@ -197,10 +197,10 @@ struct PromoRow: View {
                 .frame(width: 60)
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 6) {
-                        Text("Keyact 101").font(KA.F.headline).foregroundStyle(KA.C.text)
+                        Text("ShogunAI 101").font(KA.F.headline).foregroundStyle(KA.C.text)
                         Badge(text: "New", style: .new)
                     }
-                    Text("Tips for using the Keyact keyboard").font(KA.F.caption).foregroundStyle(KA.C.textSecondary)
+                    Text("Tips for using the ShogunAI keyboard").font(KA.F.caption).foregroundStyle(KA.C.textSecondary)
                 }
                 Spacer()
                 Image(systemName: "play.fill")

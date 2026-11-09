@@ -42,7 +42,7 @@ struct KeyboardToolbar: View {
         HStack(spacing: 8) {
             if model.mode == .panel {
                 Image(systemName: "sparkles").font(.system(size: 15, weight: .semibold))
-                Text(model.activeAct?.name ?? "Keyact")
+                Text(model.activeAct?.name ?? "ShogunAI")
                     .font(KA.F.headline)
                     .lineLimit(1)
                 Spacer()
@@ -437,7 +437,7 @@ struct SpaceKey: View {
                 Spacer()
             }
             .overlay(alignment: .bottomTrailing) {
-                Text("KEYACT").font(.system(size: 6, weight: .bold)).foregroundStyle(KA.C.textTertiary).padding(4)
+                Text("SHOGUNAI").font(.system(size: 6, weight: .bold)).foregroundStyle(KA.C.textTertiary).padding(4)
             }
         }
         .overlay {
@@ -590,7 +590,7 @@ struct ActPanelView: View {
                 Text("You've used today's AI credits").font(KA.F.headline).foregroundStyle(KA.C.kbText)
                 Text("Credits reset daily. Upgrade in the app for more.").font(KA.F.caption).foregroundStyle(KA.C.textSecondary)
                 if !model.isDemo {
-                    Button("Open Keyact") { model.onOpenApp?(URL(string: "keyact://upgrade")!) }
+                    Button("Open ShogunAI") { model.onOpenApp?(URL(string: "shogunai://upgrade")!) }
                         .font(KA.F.bodyMedium)
                         .foregroundStyle(KA.C.accent)
                 }
@@ -638,7 +638,7 @@ struct ActsPanelView: View {
             }
             .padding(10)
             if acts.count <= 1 {
-                Text("Add more Acts in the Keyact app")
+                Text("Add more Acts in the ShogunAI app")
                     .font(KA.F.caption)
                     .foregroundStyle(KA.C.textSecondary)
                     .padding(.top, 4)

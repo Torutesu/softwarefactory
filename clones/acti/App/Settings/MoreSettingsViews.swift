@@ -38,7 +38,7 @@ struct ProFeatureView: View {
             VStack(alignment: .leading, spacing: 14) {
                 HStack {
                     HStack(spacing: 4) {
-                        Text("KEYACT").font(KA.F.micro).foregroundStyle(KA.C.text)
+                        Text("SHOGUNAI").font(KA.F.micro).foregroundStyle(KA.C.text)
                         Badge(text: "Pro", style: .pro)
                     }
                     Spacer()
@@ -68,9 +68,9 @@ struct ProFeatureView: View {
             VStack(alignment: .leading, spacing: 10) {
                 Text("Connect in two steps").font(KA.F.bodyMedium).foregroundStyle(KA.C.textSecondary)
                 VStack(spacing: 0) {
-                    step(1, "Download Keyact Desktop", "Install and open Keyact on your computer.")
+                    step(1, "Download ShogunAI Desktop", "Install and open ShogunAI on your computer.")
                     Rectangle().fill(KA.C.divider).frame(height: 1).padding(.leading, 52)
-                    step(2, "Scan to log in", "Use the Keyact app to scan the desktop QR code.")
+                    step(2, "Scan to log in", "Use the ShogunAI app to scan the desktop QR code.")
                 }
                 .card(radius: KA.R.group)
             }
@@ -247,17 +247,17 @@ struct AboutView: View {
                 BrandMark(size: 56)
                     .frame(width: 84, height: 84)
                     .background(RoundedRectangle(cornerRadius: 20, style: .continuous).fill(.black))
-                Text("Keyact").font(KA.F.title).foregroundStyle(KA.C.text)
+                Text("ShogunAI").font(KA.F.title).foregroundStyle(KA.C.text)
                 Text("Version \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.1.0")")
                     .font(KA.F.caption).foregroundStyle(KA.C.textSecondary)
             }
             .padding(.top, 20)
             SettingsGroup(title: nil) {
-                Link(destination: URL(string: "https://example.com/keyact/terms")!) {
+                Link(destination: URL(string: "https://example.com/shogunai/terms")!) {
                     SettingsRow(icon: nil, title: "Terms of Service") { Chevron() }
                 }
                 Rectangle().fill(KA.C.divider).frame(height: 1).padding(.leading, 16)
-                Link(destination: URL(string: "https://example.com/keyact/privacy")!) {
+                Link(destination: URL(string: "https://example.com/shogunai/privacy")!) {
                     SettingsRow(icon: nil, title: "Privacy Policy") { Chevron() }
                 }
             }

@@ -1,5 +1,5 @@
-# XcodeGen 定義。`xcodegen generate` で Keyact.xcodeproj を生成する (README 参照)
-name: Keyact
+# XcodeGen 定義。`xcodegen generate` で ShogunAI.xcodeproj を生成する (README 参照)
+name: ShogunAI
 options:
   bundleIdPrefix: com.example
   deploymentTarget:
@@ -14,7 +14,7 @@ settings:
     DEVELOPMENT_TEAM: ""
     CODE_SIGN_STYLE: Automatic
 targets:
-  Keyact:
+  ShogunAI:
     type: application
     platform: iOS
     sources:
@@ -25,26 +25,26 @@ targets:
     info:
       path: App/Info.plist
       properties:
-        CFBundleDisplayName: Keyact
+        CFBundleDisplayName: ShogunAI
         UILaunchScreen:
           UIColorName: ""
         UIAppFonts: [Outfit-Variable.ttf]
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
         UIUserInterfaceStyle: Automatic
         CFBundleURLTypes:
-          - CFBundleURLSchemes: [keyact]
+          - CFBundleURLSchemes: [shogunai]
     entitlements:
-      path: App/Keyact.entitlements
+      path: App/ShogunAI.entitlements
       properties:
-        com.apple.security.application-groups: [group.com.example.keyact]
+        com.apple.security.application-groups: [group.com.example.shogunai]
     dependencies:
-      - target: KeyactKeyboard
+      - target: ShogunAIKeyboard
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.example.keyact
+        PRODUCT_BUNDLE_IDENTIFIER: com.example.shogunai
         TARGETED_DEVICE_FAMILY: "1"
         ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS: NO
-  KeyactKeyboard:
+  ShogunAIKeyboard:
     type: app-extension
     platform: iOS
     sources:
@@ -55,7 +55,7 @@ targets:
     info:
       path: Keyboard/Info.plist
       properties:
-        CFBundleDisplayName: Keyact
+        CFBundleDisplayName: ShogunAI
         UIAppFonts: [Outfit-Variable.ttf]
         NSExtension:
           NSExtensionPointIdentifier: com.apple.keyboard-service
@@ -66,11 +66,11 @@ targets:
             PrimaryLanguage: en-US
             RequestsOpenAccess: true
     entitlements:
-      path: Keyboard/KeyactKeyboard.entitlements
+      path: Keyboard/ShogunAIKeyboard.entitlements
       properties:
-        com.apple.security.application-groups: [group.com.example.keyact]
+        com.apple.security.application-groups: [group.com.example.shogunai]
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.example.keyact.keyboard
+        PRODUCT_BUNDLE_IDENTIFIER: com.example.shogunai.keyboard
         TARGETED_DEVICE_FAMILY: "1"
         APPLICATION_EXTENSION_API_ONLY: YES

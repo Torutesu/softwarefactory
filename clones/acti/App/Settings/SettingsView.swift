@@ -27,7 +27,7 @@ struct SettingsView: View {
 
                     SettingsGroup(
                         title: "Desktop Features",
-                        trailing: AnyView(Link("Download", destination: URL(string: "https://example.com/keyact/desktop")!).font(KA.F.caption).foregroundStyle(KA.C.accent))
+                        trailing: AnyView(Link("Download", destination: URL(string: "https://example.com/shogunai/desktop")!).font(KA.F.caption).foregroundStyle(KA.C.accent))
                     ) {
                         link("iphone.radiowaves.left.and.right", "Phone Mic") { ProFeatureView(feature: .phoneMic) }
                         link("laptopcomputer.and.iphone", "Desktop Clips", last: true) { ProFeatureView(feature: .desktopClips) }
@@ -39,8 +39,8 @@ struct SettingsView: View {
                     }
 
                     SettingsGroup(title: "Support") {
-                        link("bubble.left.and.text.bubble.right", "Feedback", subtitle: "Help improve Keyact") { FeedbackView() }
-                        Link(destination: URL(string: "https://example.com/keyact/community")!) {
+                        link("bubble.left.and.text.bubble.right", "Feedback", subtitle: "Help improve ShogunAI") { FeedbackView() }
+                        Link(destination: URL(string: "https://example.com/shogunai/community")!) {
                             SettingsRow(icon: "person.3", title: "Community") { Chevron() }
                         }
                         divider
@@ -58,7 +58,7 @@ struct SettingsView: View {
                     Button { confirmDelete = true } label: {
                         VStack(spacing: 6) {
                             Text("Delete Guest Data").font(KA.F.headline).foregroundStyle(KA.C.danger)
-                            Text("Permanently deletes your guest data from Keyact and this device. This can't be undone.")
+                            Text("Permanently deletes your guest data from ShogunAI and this device. This can't be undone.")
                                 .font(KA.F.caption).foregroundStyle(KA.C.textSecondary).multilineTextAlignment(.center)
                         }
                         .padding(16)
@@ -151,7 +151,7 @@ struct AccountCard: View {
             .animation(.easeOut, value: remaining)
             HStack {
                 HStack(spacing: 6) {
-                    Text("KEYACT").font(KA.F.micro).foregroundStyle(KA.C.textSecondary)
+                    Text("SHOGUNAI").font(KA.F.micro).foregroundStyle(KA.C.textSecondary)
                     Badge(text: "Free", style: .free)
                 }
                 Spacer()
@@ -183,7 +183,7 @@ struct PaywallView: View {
             }
             OrbIcon(size: 72, pulsing: true)
             HStack(spacing: 6) {
-                Text("KEYACT").font(KA.F.title).foregroundStyle(KA.C.text)
+                Text("SHOGUNAI").font(KA.F.title).foregroundStyle(KA.C.text)
                 Badge(text: "Pro", style: .pro)
             }
             VStack(alignment: .leading, spacing: 12) {

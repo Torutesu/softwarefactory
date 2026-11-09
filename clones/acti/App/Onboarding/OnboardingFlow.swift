@@ -58,7 +58,7 @@ struct IntroView: View {
                 .padding(.horizontal, 12)
                 .padding(.top, 28)
             Spacer()
-            Button("Enable Keyact Keyboard", action: onNext)
+            Button("Enable ShogunAI Keyboard", action: onNext)
                 .buttonStyle(.primary)
                 .padding(.horizontal, KA.S.screenH)
                 .padding(.bottom, 12)
@@ -83,8 +83,8 @@ struct IntroKeyboardDemo: View {
         Beat(text: "see you soon", wheel: false, label: nil, selected: nil),
         Beat(text: "see you soon", wheel: true, label: "Emojify", selected: 3),
         Beat(text: "see you soon 🎉✨🙌", wheel: false, label: nil, selected: nil),
-        Beat(text: "see you soon 🎉✨🙌", wheel: true, label: "Keyact AI", selected: 2),
-        Beat(text: "Welcome to Keyact", wheel: false, label: nil, selected: nil),
+        Beat(text: "see you soon 🎉✨🙌", wheel: true, label: "Shogun AI", selected: 2),
+        Beat(text: "Welcome to ShogunAI", wheel: false, label: nil, selected: nil),
     ]
     @State private var index = 0
     private let timer = Timer.publish(every: 2.4, on: .main, in: .common).autoconnect()
@@ -297,12 +297,12 @@ private struct SettingsGuideAnimation: View {
             HStack {
                 Label("Apps", systemImage: "chevron.left").font(.system(size: 15)).foregroundStyle(.blue)
                 Spacer()
-                Text("Keyact").font(.system(size: 15, weight: .semibold)).foregroundStyle(.black)
+                Text("ShogunAI").font(.system(size: 15, weight: .semibold)).foregroundStyle(.black)
                 Spacer()
                 Color.clear.frame(width: 50)
             }
             .padding(14)
-            Text("ALLOW KEYACT TO ACCESS").font(.system(size: 11)).foregroundStyle(.gray).padding(.horizontal, 16).padding(.top, 6)
+            Text("ALLOW SHOGUNAI TO ACCESS").font(.system(size: 11)).foregroundStyle(.gray).padding(.horizontal, 16).padding(.top, 6)
             VStack(spacing: 0) {
                 guideRow("Siri", "mic.circle.fill", .purple)
                 guideRow("Search", "magnifyingglass.circle.fill", .gray)
@@ -341,9 +341,9 @@ private struct FullAccessExplainer: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    Text("iOS asks every third-party keyboard for “Full Access” before it can use the network. Keyact needs it to run Acts and AI answers.")
+                    Text("iOS asks every third-party keyboard for “Full Access” before it can use the network. ShogunAI needs it to run Acts and AI answers.")
                     Text("• Regular typing never leaves your device.\n• Text is sent only when you trigger an Act, Voice or AI.\n• Keystrokes are never logged.")
-                    Text("You can turn Full Access off any time in Settings › Apps › Keyact › Keyboards.")
+                    Text("You can turn Full Access off any time in Settings › Apps › ShogunAI › Keyboards.")
                 }
                 .font(KA.F.body)
                 .foregroundStyle(KA.C.text)
@@ -376,7 +376,7 @@ struct KeyboardReadyView: View {
                 .background(Circle().fill(KA.C.success))
                 .scaleEffect(appeared ? 1 : 0.4)
                 .opacity(appeared ? 1 : 0)
-            Text("Keyact keyboard is ready").font(KA.F.display).foregroundStyle(KA.C.text).padding(.top, 20)
+            Text("ShogunAI keyboard is ready").font(KA.F.display).foregroundStyle(KA.C.text).padding(.top, 20)
 
             VStack(spacing: 0) {
                 feature("globe", "90+ languages")
@@ -398,7 +398,7 @@ struct KeyboardReadyView: View {
             }
             .font(KA.F.caption)
             .padding(.bottom, 14)
-            Button("Explore Keyact", action: onNext)
+            Button("Explore ShogunAI", action: onNext)
                 .buttonStyle(.primary)
                 .padding(.horizontal, KA.S.screenH)
                 .padding(.bottom, 12)

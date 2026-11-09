@@ -2,7 +2,7 @@ import SwiftUI
 
 @main
 @MainActor
-struct KeyactApp: App {
+struct ShogunAIApp: App {
     @State private var store = AppStore.shared
     @Environment(\.scenePhase) private var scenePhase
 
@@ -44,7 +44,7 @@ struct RootView: View {
         }
         .animation(KA.M.fade, value: store.state.onboardingDone)
         .onOpenURL { url in
-            // キーボードの「Open Keyact」(keyact://upgrade) からペイウォールを開く
+            // キーボードの「Open ShogunAI」(shogunai://upgrade) からペイウォールを開く
             if url.host == "upgrade" { showPaywall = true }
         }
         .sheet(isPresented: $showPaywall) { PaywallView() }

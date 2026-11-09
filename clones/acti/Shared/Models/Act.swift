@@ -102,21 +102,21 @@ struct ActItem: Identifiable, Codable, Hashable {
 }
 
 enum ActCatalog {
-    static let aiID = "keyact-ai"
+    static let aiID = "shogunai-ai"
 
     static let ai = ActItem(
-        id: aiID, name: "Keyact AI",
+        id: aiID, name: "Shogun AI",
         summary: "Ask anything right where you type.",
-        overview: "Write a question or a request in the current chat and trigger Keyact AI. It looks things up and puts the answer straight into the text field — no app switching, no copy and paste.",
+        overview: "Write a question or a request in the current chat and trigger Shogun AI. It looks things up and puts the answer straight into the text field — no app switching, no copy and paste.",
         category: .writing, uses: 0, symbol: "sparkles", colors: [0x6FD3FF, 0x6A7BFF],
-        author: "Keyact Official", authorActs: 1, isOfficial: true,
+        author: "ShogunAI Official", authorActs: 1, isOfficial: true,
         input: .textEntered, output: .replace, kind: .askAI
     )
 
     private static func act(
         _ id: String, _ name: String, _ summary: String, _ category: ActCategory, _ uses: Int,
         _ symbol: String, _ colors: [UInt32], _ kind: ActKind,
-        author: String = "Keyact Labs", authorActs: Int = 24,
+        author: String = "ShogunAI Labs", authorActs: Int = 24,
         input: ActInput = .textEntered, output: ActOutput = .replace, tools: [String] = []
     ) -> ActItem {
         ActItem(

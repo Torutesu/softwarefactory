@@ -251,7 +251,7 @@ struct WheelSettingsView: View {
     @State private var demoPhase = false
 
     var body: some View {
-        SettingsPage(title: "Keyact Wheel") {
+        SettingsPage(title: "ShogunAI Wheel") {
             SettingsGroup(title: "How it works") {
                 VStack(alignment: .leading, spacing: 12) {
                     Text("Hold the space bar to open the Wheel").font(KA.F.headline).foregroundStyle(KA.C.text)
@@ -317,7 +317,7 @@ struct WheelSettingsView: View {
     }
 
     private func label(_ i: Int, _ id: String?) -> String {
-        if i == 2 { return "Keyact AI" }
+        if i == 2 { return "Shogun AI" }
         switch id {
         case "tool.clipboard": return "Clipboard"
         case "tool.voice": return "Voice"
@@ -373,7 +373,7 @@ struct WheelSlotPicker: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 14) {
-                SubTabs(options: ["My Acts", "Keyact Tools"], selection: $tab) { $0 }
+                SubTabs(options: ["My Acts", "ShogunAI Tools"], selection: $tab) { $0 }
                 ScrollView {
                     VStack(spacing: 0) {
                         if tab == "My Acts" {

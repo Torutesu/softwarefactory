@@ -4,7 +4,7 @@ import Observation
 // アプリ本体とキーボード拡張で共有する状態。App Group の UserDefaults に JSON で保存する。
 
 enum AppGroup {
-    static let id = "group.com.example.keyact"
+    static let id = "group.com.example.shogunai"
     static var defaults: UserDefaults { UserDefaults(suiteName: id) ?? .standard }
 }
 
@@ -94,7 +94,7 @@ final class AppStore {
     static let shared = AppStore()
 
     static let dailyCredits = 10
-    private static let key = "keyact.state.v1"
+    private static let key = "shogunai.state.v1"
 
     var state: PersistedState {
         didSet { save() }
@@ -144,7 +144,7 @@ final class AppStore {
 
     func toggleAdded(_ act: ActItem) {
         if let i = state.addedActIDs.firstIndex(of: act.id) {
-            guard act.id != ActCatalog.aiID else { return }   // Keyact AI は外せない
+            guard act.id != ActCatalog.aiID else { return }   // Shogun AI は外せない
             state.addedActIDs.remove(at: i)
             for (slot, id) in state.wheelSlots.enumerated() where id == act.id && slot != 2 {
                 state.wheelSlots[slot] = nil

@@ -120,7 +120,7 @@ struct ActDetailView: View {
     private var moreMenu: some View {
         Menu {
             Button { showAssign = true } label: { Label("Assign to Key", systemImage: "keyboard") }
-            ShareLink(item: "Check out the “\(current.name)” Act on Keyact") { Label("Share", systemImage: "square.and.arrow.up") }
+            ShareLink(item: "Check out the “\(current.name)” Act on ShogunAI") { Label("Share", systemImage: "square.and.arrow.up") }
             if isMine {
                 Button {
                     var a = current
@@ -271,7 +271,7 @@ struct AssignKeySheet: View {
         VStack(spacing: 18) {
             Capsule().fill(KA.C.textTertiary).frame(width: 36, height: 5).padding(.top, 8)
             Text("Assign to Key").font(KA.F.title).foregroundStyle(KA.C.text)
-            Text("Long-press the key on the Keyact keyboard to run “\(act.name)”.")
+            Text("Long-press the key on the ShogunAI keyboard to run “\(act.name)”.")
                 .font(KA.F.caption).foregroundStyle(KA.C.textSecondary).multilineTextAlignment(.center)
             VStack(spacing: 10) {
                 ForEach(rows, id: \.self) { row in

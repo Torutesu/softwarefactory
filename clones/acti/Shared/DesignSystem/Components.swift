@@ -224,7 +224,7 @@ struct ActIcon: View {
     }
 }
 
-/// Keyact AI を象徴する発光オーブ (本家オーブの見た目を参考にした別デザイン)
+/// Shogun AI を象徴する発光オーブ (本家オーブの見た目を参考にした別デザイン)
 @MainActor
 struct OrbIcon: View {
     var size: CGFloat = 64
@@ -268,8 +268,8 @@ struct BrandMark: View {
     var body: some View {
         let d = size * 0.46
         VStack(spacing: size * 0.08) {
-            HStack(spacing: size * 0.08) { dot("K", filled: false, d); dot("e", filled: true, d) }
-            HStack(spacing: size * 0.08) { dot("y", filled: true, d); dot("a", filled: false, d) }
+            HStack(spacing: size * 0.08) { dot("S", filled: false, d); dot("G", filled: true, d) }
+            HStack(spacing: size * 0.08) { dot("A", filled: true, d); dot("I", filled: false, d) }
         }
     }
 

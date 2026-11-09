@@ -1,10 +1,10 @@
-# Keyact — Acti（エージェントキーボード）の再現
+# ShogunAI — Acti（エージェントキーボード）の再現
 
 `/app-clone Acti` で作った iPhone 向けの再現コードです。調査・解析の資料は
 [`docs/app-clone/acti/`](../../docs/app-clone/acti/) にあります。
 
 - **スコープ**: iPhone のみ・無料範囲のみ（Mac 版と Pro 機能は対象外）
-- **名前・ロゴ・文言**: 本家のものは使わず、仮名「Keyact」と仮デザインに置き換えています（[`assets-todo.md`](../../docs/app-clone/acti/assets-todo.md)）
+- **名前・ロゴ・文言**: 本家のものは使わず、仮名「ShogunAI」と仮デザインに置き換えています（[`assets-todo.md`](../../docs/app-clone/acti/assets-todo.md)）
 - **AI**: ネットワークを使わないモック（`Shared/Models/MockAI.swift`）。実際の LLM に差し替えるときは `AIService` を実装して注入します
 
 ## ブラウザで見るプロトタイプ
@@ -18,14 +18,14 @@ brew install xcodegen
 ```
 
 ```bash
-cd clones/acti && ./scripts/fetch_font.sh && xcodegen generate && open Keyact.xcodeproj
+cd clones/acti && ./scripts/fetch_font.sh && xcodegen generate && open ShogunAI.xcodeproj
 ```
 
 1. `fetch_font.sh` は代替フォント Outfit（SIL OFL）を取得します。無くても動きます（システムの丸ゴシック系で表示）
-2. Xcode で `Keyact` と `KeyactKeyboard` の両ターゲットに自分の Team を設定します
-3. App Group `group.com.example.keyact` を両ターゲットで有効にします（Bundle ID を変える場合は `project.yml` と `Shared/Models/Store.swift` の `AppGroup.id` も合わせて変更）
-4. 実機またはシミュレータ（iOS 17 以上）で `Keyact` を実行します
-5. 設定 › 一般 › キーボード › キーボード › 新しいキーボードを追加 › Keyact、フルアクセスを ON
+2. Xcode で `ShogunAI` と `ShogunAIKeyboard` の両ターゲットに自分の Team を設定します
+3. App Group `group.com.example.shogunai` を両ターゲットで有効にします（Bundle ID を変える場合は `project.yml` と `Shared/Models/Store.swift` の `AppGroup.id` も合わせて変更）
+4. 実機またはシミュレータ（iOS 17 以上）で `ShogunAI` を実行します
+5. 設定 › 一般 › キーボード › キーボード › 新しいキーボードを追加 › ShogunAI、フルアクセスを ON
 
 ## 構成
 
@@ -53,5 +53,5 @@ cd clones/acti && ./scripts/fetch_font.sh && xcodegen generate && open Keyact.xc
 
 - **ビルド未確認**: クラウド環境（Linux）で作成したため、Xcode でのビルドはまだしていません。Swift の構文チェックのみ済みです。最初のビルドで型エラーが出たら `diff-log.md` に記録して直します
 - **音声入力はモック**: iOS のキーボード拡張はマイクを使えません。本家は本体アプリ側で録音していると推定されます。ここでは固定の文章を返します
-- **拡張から本体アプリを開く処理**（クレジット切れ時の「Open Keyact」）は非公開の方法に頼るため、iOS のバージョンによっては開けません
+- **拡張から本体アプリを開く処理**（クレジット切れ時の「Open ShogunAI」）は非公開の方法に頼るため、iOS のバージョンによっては開けません
 - **録画にない画面は推定**: キーボード本体の通常入力、Acts タブ、Voice、Clips、Agent、Community の検索・インストール、ライトモードは公式ガイドの説明を元にした推定です（`docs/app-clone/acti/analysis.md` の「録画の網羅状況」）

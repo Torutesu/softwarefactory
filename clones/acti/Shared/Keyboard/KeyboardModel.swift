@@ -346,7 +346,7 @@ final class KeyboardModel {
 
     // MARK: Wheel geometry
 
-    /// スロットの中心座標 (キー領域の座標系)。左から 0...4、中央 (2) が Keyact AI
+    /// スロットの中心座標 (キー領域の座標系)。左から 0...4、中央 (2) が Shogun AI
     func wheelSlotPoints(in size: CGSize) -> [CGPoint] {
         let center = CGPoint(x: size.width / 2, y: size.height - 14)
         let radius = min(size.width * 0.36, size.height * 0.78)

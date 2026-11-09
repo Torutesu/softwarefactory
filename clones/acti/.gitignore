@@ -3,6 +3,6 @@ DerivedData/
 build/
 xcuserdata/
 App/Info.plist
-App/Keyact.entitlements
+App/ShogunAI.entitlements
 Keyboard/Info.plist
-Keyboard/KeyactKeyboard.entitlements
+Keyboard/ShogunAIKeyboard.entitlements
