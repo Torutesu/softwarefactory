@@ -11,6 +11,7 @@ enum HomeRoute: Hashable {
     case search
 }
 
+@MainActor
 struct HomeView: View {
     @Environment(AppStore.self) private var store
     @State private var tab: HomeTab = .all
@@ -82,6 +83,7 @@ struct HomeView: View {
 
 // MARK: - All
 
+@MainActor
 private struct AllActsView: View {
     @Binding var path: [HomeRoute]
     @Binding var showTips: Bool
@@ -124,6 +126,7 @@ private struct AllActsView: View {
     }
 }
 
+@MainActor
 struct HeroCard: View {
     var body: some View {
         ZStack {
@@ -176,6 +179,7 @@ struct HeroCard: View {
     }
 }
 
+@MainActor
 struct PromoRow: View {
     var action: () -> Void
 
@@ -214,6 +218,7 @@ struct PromoRow: View {
 }
 
 /// カテゴリ見出し + 3 行カードの横ページング
+@MainActor
 struct CategorySection: View {
     var category: ActCategory
     @Binding var path: [HomeRoute]
@@ -263,6 +268,7 @@ struct CategorySection: View {
     }
 }
 
+@MainActor
 struct ComposerBar: View {
     var action: () -> Void
 
@@ -287,6 +293,7 @@ struct ComposerBar: View {
 
 enum MyFilter: String, CaseIterable, Hashable { case all = "All", added = "Added", created = "Created" }
 
+@MainActor
 private struct MyActsView: View {
     @Environment(AppStore.self) private var store
     @Binding var path: [HomeRoute]
@@ -364,6 +371,7 @@ private struct MyActsView: View {
 
 // MARK: - Category list / Search / Tips
 
+@MainActor
 struct CategoryListView: View {
     var category: ActCategory
     @Binding var path: [HomeRoute]
@@ -401,6 +409,7 @@ struct CategoryListView: View {
     }
 }
 
+@MainActor
 struct SearchView: View {
     @Binding var path: [HomeRoute]
     @Environment(AppStore.self) private var store
@@ -467,6 +476,7 @@ struct SearchView: View {
     }
 }
 
+@MainActor
 private struct FlowChips: View {
     var items: [String]
     var onTap: (String) -> Void
@@ -482,6 +492,7 @@ private struct FlowChips: View {
     }
 }
 
+@MainActor
 struct TipsView: View {
     @Environment(\.dismiss) private var dismiss
     private let tips: [(String, String, String)] = [

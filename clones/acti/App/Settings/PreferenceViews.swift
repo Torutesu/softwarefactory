@@ -3,6 +3,7 @@ import SwiftUI
 // S16〜S18 と Preferences 配下の画面。
 
 /// 設定サブ画面の共通の枠 (ScrollView + 背景 + タイトル)
+@MainActor
 struct SettingsPage<Content: View>: View {
     var title: String
     @ViewBuilder var content: Content
@@ -19,12 +20,14 @@ struct SettingsPage<Content: View>: View {
     }
 }
 
+@MainActor
 private struct RowDivider: View {
     var body: some View { Rectangle().fill(KA.C.divider).frame(height: 1).padding(.leading, 16) }
 }
 
 // MARK: - S16 Keyboard Settings
 
+@MainActor
 struct KeyboardSettingsView: View {
     @Environment(AppStore.self) private var store
 
@@ -105,6 +108,7 @@ struct KeyboardSettingsView: View {
     }
 }
 
+@MainActor
 struct KeyboardSizeView: View {
     @Environment(AppStore.self) private var store
 
@@ -123,6 +127,7 @@ struct KeyboardSizeView: View {
 
 // MARK: - S17 Voice Settings
 
+@MainActor
 struct VoiceSettingsView: View {
     @Environment(AppStore.self) private var store
     private let polishingNotes = [
@@ -179,6 +184,7 @@ enum Languages {
     ]
 }
 
+@MainActor
 struct LanguageSettingsView: View {
     @Environment(AppStore.self) private var store
 
@@ -188,6 +194,7 @@ struct LanguageSettingsView: View {
     }
 }
 
+@MainActor
 struct LanguagePicker: View {
     var title: String
     @Binding var selection: [String]
@@ -237,6 +244,7 @@ struct LanguagePicker: View {
 
 // MARK: - S18 Wheel
 
+@MainActor
 struct WheelSettingsView: View {
     @Environment(AppStore.self) private var store
     @State private var editingSlot: Int?
@@ -319,6 +327,7 @@ struct WheelSettingsView: View {
 }
 
 /// Wheel の動きを見せる小さなループアニメーション
+@MainActor
 private struct WheelHowItWorks: View {
     @State private var t = 0
     private let timer = Timer.publish(every: 0.9, on: .main, in: .common).autoconnect()
@@ -354,6 +363,7 @@ private struct WheelHowItWorks: View {
     }
 }
 
+@MainActor
 struct WheelSlotPicker: View {
     var slot: Int
     @Environment(AppStore.self) private var store
@@ -415,6 +425,7 @@ struct WheelSlotPicker: View {
 
 // MARK: - Clips
 
+@MainActor
 struct ClipsSettingsView: View {
     @Environment(AppStore.self) private var store
     @State private var editing: Snippet?
@@ -455,6 +466,7 @@ struct ClipsSettingsView: View {
     }
 }
 
+@MainActor
 private struct SnippetEditor: View {
     @State var snippet: Snippet
     @Environment(AppStore.self) private var store

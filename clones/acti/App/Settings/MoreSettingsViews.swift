@@ -20,6 +20,7 @@ enum ProFeature {
     }
 }
 
+@MainActor
 struct ProFeatureView: View {
     var feature: ProFeature
     var asScanner = false
@@ -122,6 +123,7 @@ struct ProFeatureView: View {
     }
 }
 
+@MainActor
 struct ExecutionHistoryView: View {
     @Environment(AppStore.self) private var store
 
@@ -159,6 +161,7 @@ struct ExecutionHistoryView: View {
     }
 }
 
+@MainActor
 struct ConnectedToolsView: View {
     @Environment(AppStore.self) private var store
     @State private var connecting: String?
@@ -206,6 +209,7 @@ struct ConnectedToolsView: View {
     }
 }
 
+@MainActor
 struct FeedbackView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var text = ""
@@ -235,6 +239,7 @@ struct FeedbackView: View {
     }
 }
 
+@MainActor
 struct AboutView: View {
     var body: some View {
         SettingsPage(title: "About") {

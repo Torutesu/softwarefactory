@@ -2,6 +2,7 @@ import SwiftUI
 
 // S15: Settings (録画 89–137s)。項目の並び・グループは録画どおり。
 
+@MainActor
 struct SettingsView: View {
     @Environment(AppStore.self) private var store
     @Environment(\.dismiss) private var dismiss
@@ -113,6 +114,7 @@ struct SettingsView: View {
     }
 }
 
+@MainActor
 struct AccountCard: View {
     @Environment(AppStore.self) private var store
     var onUpgrade: () -> Void
@@ -168,6 +170,7 @@ struct AccountCard: View {
 
 // MARK: - Paywall (表示のみ。購入処理はしない)
 
+@MainActor
 struct PaywallView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var annual = true

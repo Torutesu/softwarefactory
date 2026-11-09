@@ -1,6 +1,7 @@
 import SwiftUI
 
 @main
+@MainActor
 struct KeyactApp: App {
     @State private var store = AppStore.shared
     @Environment(\.scenePhase) private var scenePhase
@@ -26,6 +27,7 @@ struct KeyactApp: App {
     }
 }
 
+@MainActor
 struct RootView: View {
     @Environment(AppStore.self) private var store
     @State private var showPaywall = false

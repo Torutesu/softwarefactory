@@ -2,6 +2,7 @@ import SwiftUI
 
 // キーボードの見た目。録画のデモ画面 (57–75s) の配置・色を基準にしている。
 
+@MainActor
 struct KeyboardView: View {
     @Bindable var model: KeyboardModel
 
@@ -33,6 +34,7 @@ struct KeyboardView: View {
 
 // MARK: - Toolbar
 
+@MainActor
 struct KeyboardToolbar: View {
     @Bindable var model: KeyboardModel
 
@@ -91,6 +93,7 @@ struct KeyboardToolbar: View {
 }
 
 /// 左上の「Type / Act」切り替え
+@MainActor
 struct TypeActToggle: View {
     @Bindable var model: KeyboardModel
 
@@ -137,6 +140,7 @@ struct TypeActToggle: View {
 
 // MARK: - Keys
 
+@MainActor
 struct KeysArea: View {
     @Bindable var model: KeyboardModel
 
@@ -242,6 +246,7 @@ struct KeysArea: View {
     }
 }
 
+@MainActor
 struct KeyCap<Content: View>: View {
     var pressed: Bool
     var special = false
@@ -261,6 +266,7 @@ struct KeyCap<Content: View>: View {
     }
 }
 
+@MainActor
 struct CharKey: View {
     let label: String
     @Bindable var model: KeyboardModel
@@ -331,6 +337,7 @@ struct CharKey: View {
     }
 }
 
+@MainActor
 struct SpecialKey: View {
     var label: String?
     var systemImage: String?
@@ -366,6 +373,7 @@ struct SpecialKey: View {
     }
 }
 
+@MainActor
 struct ShiftKey: View {
     @Bindable var model: KeyboardModel
     @State private var lastTap: Date?
@@ -392,6 +400,7 @@ struct ShiftKey: View {
     }
 }
 
+@MainActor
 struct DeleteKey: View {
     @Bindable var model: KeyboardModel
     @State private var pressed = false
@@ -415,6 +424,7 @@ struct DeleteKey: View {
     }
 }
 
+@MainActor
 struct SpaceKey: View {
     @Bindable var model: KeyboardModel
     @State private var pressed = false
@@ -451,6 +461,7 @@ struct SpaceKey: View {
 
 // MARK: - Wheel
 
+@MainActor
 struct WheelOverlay: View {
     @Bindable var model: KeyboardModel
     var size: CGSize
@@ -535,6 +546,7 @@ struct WheelOverlay: View {
 // MARK: - Panels
 
 /// Act 実行中 / 結果の HUD (録画 57s の「Thinking •••」)
+@MainActor
 struct ActPanelView: View {
     @Bindable var model: KeyboardModel
 
@@ -602,6 +614,7 @@ struct ActPanelView: View {
 }
 
 /// Acts タブ (Act Panel)
+@MainActor
 struct ActsPanelView: View {
     @Bindable var model: KeyboardModel
 
@@ -635,6 +648,7 @@ struct ActsPanelView: View {
 }
 
 /// 音声入力パネル (モック)
+@MainActor
 struct VoicePanelView: View {
     @Bindable var model: KeyboardModel
     @State private var level: CGFloat = 0.3
@@ -707,6 +721,7 @@ private struct VoiceButtonStyle: ButtonStyle {
 }
 
 /// Clips (クリップボード履歴 + スニペット)
+@MainActor
 struct ClipsPanelView: View {
     @Bindable var model: KeyboardModel
 

@@ -103,6 +103,7 @@ final class DemoChatModel {
     }
 }
 
+@MainActor
 struct DemoChatView: View {
     var finished: Bool
     var onComplete: () -> Void
@@ -167,6 +168,7 @@ struct DemoChatView: View {
     }
 }
 
+@MainActor
 private struct ChatHeader: View {
     var body: some View {
         ZStack {
@@ -198,6 +200,7 @@ private struct ChatHeader: View {
     }
 }
 
+@MainActor
 private struct ChatBubble: View {
     var message: ChatMessage
 
@@ -215,6 +218,7 @@ private struct ChatBubble: View {
     }
 }
 
+@MainActor
 private struct ChatComposer: View {
     @Bindable var model: DemoChatModel
 
@@ -260,6 +264,7 @@ private struct ChatComposer: View {
 }
 
 /// S09: 「お気に入りのアプリで試そう」カード
+@MainActor
 private struct TryInAppsCard: View {
     var onFinish: () -> Void
 

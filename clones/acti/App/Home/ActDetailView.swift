@@ -2,6 +2,7 @@ import SwiftUI
 
 // S14: Act 詳細 (録画 154–155s)。読み込み中は灰色のオーブを見せてからフェードイン。
 
+@MainActor
 struct ActDetailView: View {
     var act: ActItem
     @Binding var path: [HomeRoute]
@@ -143,6 +144,7 @@ struct ActDetailView: View {
     }
 }
 
+@MainActor
 struct InputOutputCard: View {
     var act: ActItem
 
@@ -172,6 +174,7 @@ struct InputOutputCard: View {
 }
 
 /// Try It: サンプル文に Act を実行して結果を見る
+@MainActor
 struct TryActSheet: View {
     var act: ActItem
     @Environment(AppStore.self) private var store
@@ -255,6 +258,7 @@ struct TryActSheet: View {
 }
 
 /// Act をアルファベットキーに割り当てる (長押しで実行)
+@MainActor
 struct AssignKeySheet: View {
     var act: ActItem
     @Environment(AppStore.self) private var store

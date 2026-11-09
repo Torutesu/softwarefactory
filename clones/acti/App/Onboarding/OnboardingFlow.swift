@@ -7,6 +7,7 @@ enum OnboardingStep: Hashable {
     case intro, fullAccess, ready, actIntro, demo, tryApps
 }
 
+@MainActor
 struct OnboardingFlow: View {
     @Environment(AppStore.self) private var store
     @State private var step: OnboardingStep = .intro
@@ -40,6 +41,7 @@ struct OnboardingFlow: View {
 
 // MARK: - S01 Intro
 
+@MainActor
 struct IntroView: View {
     var onNext: () -> Void
 
@@ -66,6 +68,7 @@ struct IntroView: View {
 }
 
 /// S01 の自動再生デモ (録画 0–18s): Wheel を開く → Act を選ぶ → 入力欄の文字が変わる、をループ
+@MainActor
 struct IntroKeyboardDemo: View {
     private struct Beat {
         var text: String
@@ -119,6 +122,7 @@ struct IntroKeyboardDemo: View {
     }
 }
 
+@MainActor
 private struct MiniKeyboard: View {
     var body: some View {
         VStack(spacing: 8) {
@@ -146,6 +150,7 @@ private struct MiniKeyboard: View {
     }
 }
 
+@MainActor
 private struct MiniWheel: View {
     var selected: Int?
     var label: String?
@@ -178,6 +183,7 @@ private struct MiniWheel: View {
 
 // MARK: - S02〜S05 Full Access
 
+@MainActor
 struct FullAccessView: View {
     var onClose: () -> Void
     var onDone: () -> Void
@@ -252,6 +258,7 @@ struct FullAccessView: View {
     }
 }
 
+@MainActor
 private struct PrivacyCard: View {
     var body: some View {
         VStack(spacing: 14) {
@@ -281,6 +288,7 @@ private struct PrivacyCard: View {
 }
 
 /// S03: 設定アプリのミニチュアが出て「Keyboards」をタップする手が動くガイド
+@MainActor
 private struct SettingsGuideAnimation: View {
     @State private var tapped = false
 
@@ -325,6 +333,7 @@ private struct SettingsGuideAnimation: View {
     }
 }
 
+@MainActor
 private struct FullAccessExplainer: View {
     @Environment(\.dismiss) private var dismiss
 
@@ -351,6 +360,7 @@ private struct FullAccessExplainer: View {
 
 // MARK: - S06 Ready
 
+@MainActor
 struct KeyboardReadyView: View {
     var onNext: () -> Void
     @State private var showGuide = false
@@ -411,6 +421,7 @@ struct KeyboardReadyView: View {
 
 // MARK: - S07 Act intro
 
+@MainActor
 struct ActIntroView: View {
     var act: ActItem
     var onBack: () -> Void
@@ -442,6 +453,7 @@ struct ActIntroView: View {
     }
 }
 
+@MainActor
 struct AuthorCard: View {
     var name: String
     var acts: Int
@@ -485,6 +497,7 @@ struct AuthorCard: View {
     }
 }
 
+@MainActor
 struct OverviewCard: View {
     var text: String
 

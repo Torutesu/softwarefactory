@@ -10,6 +10,7 @@ struct AgentMessage: Identifiable {
     var proposal: ActItem?
 }
 
+@MainActor
 struct AgentChatView: View {
     var initialPrompt: String?
     var remixOf: ActItem?

@@ -46,6 +46,7 @@ extension ButtonStyle where Self == PrimaryButtonStyle { static var primary: Pri
 extension ButtonStyle where Self == SecondaryButtonStyle { static var secondary: SecondaryButtonStyle { .init() } }
 extension ButtonStyle where Self == PressableStyle { static var pressable: PressableStyle { .init() } }
 
+@MainActor
 struct CircleIconButton: View {
     var systemName: String
     var highlighted = false
@@ -66,6 +67,7 @@ struct CircleIconButton: View {
 
 // MARK: - Segmented
 
+@MainActor
 struct SegmentedPill<Option: Hashable>: View {
     var options: [Option]
     @Binding var selection: Option
@@ -102,6 +104,7 @@ struct SegmentedPill<Option: Hashable>: View {
 }
 
 /// My タブ内の小さいタブ (All / Added / Created)
+@MainActor
 struct SubTabs<Option: Hashable>: View {
     var options: [Option]
     @Binding var selection: Option
@@ -127,6 +130,7 @@ struct SubTabs<Option: Hashable>: View {
 
 // MARK: - Chips / Badges / Pills
 
+@MainActor
 struct Chip: View {
     var title: String
     var selected = false
@@ -145,6 +149,7 @@ struct Chip: View {
     }
 }
 
+@MainActor
 struct Badge: View {
     enum Style { case new, free, pro }
     var text: String
@@ -156,7 +161,7 @@ struct Badge: View {
             .foregroundStyle(foreground)
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
-            .background(background)
+            .background(badgeBackground)
     }
 
     private var foreground: Color {
@@ -167,7 +172,7 @@ struct Badge: View {
         }
     }
 
-    @ViewBuilder private var background: some View {
+    @ViewBuilder private var badgeBackground: some View {
         switch style {
         case .new: RoundedRectangle(cornerRadius: 5).fill(KA.C.badgeNewBg)
         case .free: RoundedRectangle(cornerRadius: 5).stroke(KA.C.textTertiary, lineWidth: 1)
@@ -176,6 +181,7 @@ struct Badge: View {
     }
 }
 
+@MainActor
 struct AddPill: View {
     var added: Bool
     var action: () -> Void
@@ -195,6 +201,7 @@ struct AddPill: View {
 
 // MARK: - Icons
 
+@MainActor
 struct ActIcon: View {
     var act: ActItem
     var size: CGFloat = KA.Size.rowIcon
@@ -218,6 +225,7 @@ struct ActIcon: View {
 }
 
 /// Keyact AI を象徴する発光オーブ (本家オーブの見た目を参考にした別デザイン)
+@MainActor
 struct OrbIcon: View {
     var size: CGFloat = 64
     var pulsing = false
@@ -253,6 +261,7 @@ struct OrbIcon: View {
 }
 
 /// ブランドマーク (仮)。本家ロゴの代わりに使うプレースホルダー
+@MainActor
 struct BrandMark: View {
     var size: CGFloat = 40
 
@@ -274,6 +283,7 @@ struct BrandMark: View {
     }
 }
 
+@MainActor
 struct ThinkingDots: View {
     @State private var active = 0
     let timer = Timer.publish(every: 0.3, on: .main, in: .common).autoconnect()
@@ -320,6 +330,7 @@ extension View {
 
 // MARK: - Act row
 
+@MainActor
 struct ActRow: View {
     var act: ActItem
     var showsDivider = false
@@ -358,6 +369,7 @@ struct ActRow: View {
 
 // MARK: - Settings rows
 
+@MainActor
 struct SettingsGroup<Content: View>: View {
     var title: String?
     var trailing: AnyView? = nil
@@ -379,6 +391,7 @@ struct SettingsGroup<Content: View>: View {
     }
 }
 
+@MainActor
 struct SettingsRow<Accessory: View>: View {
     var icon: String?
     var title: String
@@ -410,6 +423,7 @@ struct SettingsRow<Accessory: View>: View {
     }
 }
 
+@MainActor
 struct Chevron: View {
     var value: String? = nil
     var body: some View {
@@ -420,6 +434,7 @@ struct Chevron: View {
     }
 }
 
+@MainActor
 struct ToggleRow: View {
     var icon: String? = nil
     var title: String
@@ -434,6 +449,7 @@ struct ToggleRow: View {
 }
 
 /// 段階付きスライダー (Key Label Weight / Haptic / Polishing)
+@MainActor
 struct StepSlider: View {
     var labels: [String]
     @Binding var value: Int
@@ -460,6 +476,7 @@ struct StepSlider: View {
 
 // MARK: - Coachmark
 
+@MainActor
 struct CoachmarkBubble: View {
     var text: String
 
@@ -476,6 +493,7 @@ struct CoachmarkBubble: View {
 }
 
 /// タップを促す手のアイコン。小さく上下して押す動きを繰り返す
+@MainActor
 struct TapHand: View {
     @State private var down = false
 
@@ -493,6 +511,7 @@ struct TapHand: View {
     }
 }
 
+@MainActor
 struct NavHeader: View {
     var title: String
     var leading: AnyView? = nil
