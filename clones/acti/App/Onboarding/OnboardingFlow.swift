@@ -48,7 +48,8 @@ struct IntroView: View {
     var body: some View {
         VStack(spacing: 0) {
             Spacer().frame(height: 40)
-            BrandMark(size: 44)
+            BrandMark(size: 88)
+                .shadow(color: KA.C.brand.opacity(0.7), radius: 18)
             Text("Your keys,\nnow with actions")
                 .font(KA.F.display)
                 .foregroundStyle(KA.C.text)
@@ -465,9 +466,9 @@ struct AuthorCard: View {
     var body: some View {
         HStack(spacing: 12) {
             if verified {
-                BrandMark(size: 40)
+                BrandMark(size: 34)
                     .frame(width: 48, height: 48)
-                    .background(Circle().fill(Color.black))
+                    .background(Circle().fill(Color.white))
             } else {
                 Image(systemName: "person.fill")
                     .font(.system(size: 20))

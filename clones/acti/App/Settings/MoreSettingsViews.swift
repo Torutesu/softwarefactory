@@ -246,7 +246,7 @@ struct AboutView: View {
             VStack(spacing: 10) {
                 BrandMark(size: 56)
                     .frame(width: 84, height: 84)
-                    .background(RoundedRectangle(cornerRadius: 20, style: .continuous).fill(.black))
+                    .background(RoundedRectangle(cornerRadius: 20, style: .continuous).fill(.white))
                 Text("ShogunAI").font(KA.F.title).foregroundStyle(KA.C.text)
                 Text("Version \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.1.0")")
                     .font(KA.F.caption).foregroundStyle(KA.C.textSecondary)

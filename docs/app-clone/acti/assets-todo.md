@@ -6,8 +6,8 @@
 | 本家 | 再現での置き換え | 場所 |
 |---|---|---|
 | アプリ名「Acti」 | 「ShogunAI」 | 全体 |
-| A・C・T・I の4つの円のロゴ | `BrandMark`（S・G・A・I の仮マーク） | `Shared/DesignSystem/Components.swift` |
-| Acti AI のオーブ（3D の球体アイコン） | `OrbIcon`（グラデーションの円 + ✦） | 同上 |
+| A・C・T・I の4つの円のロゴ | **ユーザー提供の ShogunAI ロゴ**（6枚の多角形をベクター化した `ShogunLogoShape`、アプリアイコンも生成） | `Shared/DesignSystem/Components.swift`、`Resources/Assets.xcassets` |
+| Acti AI のオーブ（3D の球体アイコン） | `OrbIcon`（ロゴの青系グラデーションの円 + ✦） | 同上 |
 | ヒーローカードのキーボードの 3D イラスト | SwiftUI で描いた簡易イラスト | `App/Home/HomeView.swift` |
 | Acti 101 の電球イラスト | SF Symbols の組み合わせ | 同上 |
 | 各 Act の 3D 風アイコン | `ActIcon`（グラデーションの円 + SF Symbols） | `Shared/DesignSystem/Components.swift` |

@@ -9,11 +9,11 @@
   color-scheme: dark;
   /* Color — Shared/DesignSystem/Tokens.swift と同じ値 */
   --bg: #11161D; --bg-top: #131B28; --card: #242A31; --card-alt: #272C35; --raised: #2F3742;
-  --seg-track: #2A2F38; --seg-thumb: #595E6C; --pill-add: #2A3644; --accent: #5094D7;
+  --seg-track: #2A2F38; --seg-thumb: #595E6C; --pill-add: rgba(3,75,255,.22); --accent: #6B95FF; --brand: #034BFF; --brand-hi: #4F7DFF;
   --badge-bg: #3C6E9C; --badge-fg: #DCE8ED; --cta-bg: #F1F2F7; --cta-fg: #11161D;
   --text: #FFFFFF; --text-2: #989EA5; --text-3: #5C626B; --hair: rgba(255,255,255,.08); --divider: rgba(255,255,255,.06);
   --danger: #E5484D; --success: #34C759; --hero-a: #E7EAF2; --hero-b: #C9D3E8;
-  --kb-bg: #222222; --kb-key: #414141; --kb-special: #2E2E2E; --kb-pressed: #5A5A5A; --kb-box: #303030; --kb-hl: #3D7BF7;
+  --kb-bg: rgba(38,40,46,.62); --kb-key: rgba(255,255,255,.16); --kb-special: rgba(255,255,255,.07); --kb-pressed: rgba(255,255,255,.32); --kb-box: #303030; --kb-hl: #3D7BF7;
   --chat-bg: #000000; --bubble-in: #242328; --bubble-out: #1F8BFF; --send: #52E76F; --input-bg: #1B1B1B;
   --stage: #07090C; --stage-fg: #C9CED6;
   /* Type */
@@ -59,7 +59,7 @@ input, textarea { font: inherit; color: inherit; }
 .status .r { display: flex; gap: 6px; align-items: center; font-size: 13px; }
 .batt { border: 1.5px solid currentColor; border-radius: 4px; padding: 0 3px; font-size: 11px; }
 .screen { position: absolute; inset: 0; padding-top: 54px; display: flex; flex-direction: column; }
-.bg-grad { background: linear-gradient(var(--bg-top), var(--bg) 40%); }
+.bg-grad { background: radial-gradient(circle at 12% 6%, rgba(3,75,255,.42), transparent 38%), radial-gradient(circle at 95% 38%, rgba(79,125,255,.26), transparent 42%), radial-gradient(circle at 20% 88%, rgba(3,75,255,.22), transparent 40%), linear-gradient(var(--bg-top), var(--bg) 45%); }
 .scroll { flex: 1; overflow-y: auto; overflow-x: hidden; scrollbar-width: none; }
 .scroll::-webkit-scrollbar { display: none; }
 .home-ind { position: absolute; bottom: 8px; left: 50%; transform: translateX(-50%); width: 134px; height: 5px; border-radius: 3px; background: rgba(255,255,255,.7); z-index: 50; pointer-events: none; }
@@ -97,14 +97,14 @@ input, textarea { font: inherit; color: inherit; }
 .badge.new { background: var(--badge-bg); color: var(--badge-fg); }
 .badge.free { box-shadow: inset 0 0 0 1px var(--text-3); color: var(--text-2); }
 .badge.pro { background: var(--cta-bg); color: var(--cta-fg); }
-.add { width: 64px; height: 30px; border-radius: 15px; background: var(--pill-add); color: var(--accent); font-size: 15px; font-weight: 500; flex: none; }
+.add { display: inline-grid; place-items: center; width: 64px; height: 30px; border-radius: 15px; background: var(--pill-add); color: var(--accent); font-size: 15px; font-weight: 500; flex: none; }
 .add.on { background: rgba(47,55,66,.6); color: var(--text-2); }
 .act-icon { border-radius: 50%; display: grid; place-items: center; flex: none; position: relative; color: #fff; box-shadow: inset 0 2px 6px rgba(255,255,255,.35); }
 .act-icon svg { width: 46%; height: 46%; filter: drop-shadow(0 1px 1px rgba(0,0,0,.2)); }
 .act-row { display: flex; align-items: center; gap: 14px; height: 70px; width: 100%; text-align: left; position: relative; }
 .act-row .nm { font-size: 17px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .act-row + .act-row::before { content: ""; position: absolute; top: 0; left: 62px; right: 0; height: 1px; background: var(--divider); }
-.orb { display: inline-block; vertical-align: middle; border-radius: 50%; position: relative; flex: none; background: conic-gradient(from 0deg, #6FD3FF, #6A7BFF, #B07BFF, #5EE6E0, #6FD3FF); box-shadow: 0 0 22px rgba(106,123,255,.5); }
+.orb { display: inline-block; vertical-align: middle; border-radius: 50%; position: relative; flex: none; background: conic-gradient(from 200deg, #9CC0FF, #034BFF, #5B7CFF, #BFD6FF, #2F6BFF, #9CC0FF); box-shadow: 0 0 24px rgba(3,75,255,.55); }
 .orb::before { content: ""; position: absolute; inset: 0; border-radius: 50%; background: radial-gradient(circle at 25% 20%, rgba(255,255,255,.85), transparent 60%); }
 .orb::after { content: "✦"; position: absolute; inset: 27%; border-radius: 22%; background: rgba(255,255,255,.22); color: #fff; display: grid; place-items: center; font-size: 60%; }
 .orb.gray { filter: saturate(0); box-shadow: none; }
@@ -208,12 +208,43 @@ input, textarea { font: inherit; color: inherit; }
 .hsec::-webkit-scrollbar { display: none; }
 .hsec .card { flex: none; width: calc(100% - 48px); scroll-snap-align: start; padding: 6px 16px; }
 .composer-bar { position: absolute; left: 12px; right: 12px; bottom: 30px; height: 52px; border-radius: 26px; background: rgba(39,44,53,.85); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); box-shadow: inset 0 0 0 1px var(--hair); display: flex; align-items: center; gap: 10px; padding: 0 18px; font-size: 15px; color: var(--text-2); z-index: 5; text-align: left; }
+
+/* ---------- Liquid Glass ---------- */
+.circle-btn, .seg, .chip, .add, .composer-bar, .secondary, .kb-pill, .ta, .primary, .card, .card-alt, .sgroup, .subtabs button, .kb {
+  -webkit-backdrop-filter: blur(22px) saturate(185%); backdrop-filter: blur(22px) saturate(185%);
+}
+.circle-btn, .seg, .chip, .composer-bar, .secondary, .kb-pill, .subtabs button {
+  background: linear-gradient(180deg, rgba(255,255,255,.16), rgba(255,255,255,.05) 55%, rgba(255,255,255,.08)), rgba(28,34,46,.38);
+  box-shadow: inset 0 1px .5px rgba(255,255,255,.5), inset 0 -1px 1px rgba(255,255,255,.1), inset 0 0 0 1px rgba(255,255,255,.12), 0 8px 24px rgba(0,0,0,.28);
+}
+.circle-btn.hl { box-shadow: inset 0 1px .5px rgba(255,255,255,.6), inset 0 0 0 2px rgba(255,255,255,.9), 0 0 0 4px rgba(79,125,255,.35); }
+.card, .card-alt, .sgroup {
+  background: linear-gradient(180deg, rgba(255,255,255,.09), rgba(255,255,255,.025) 40%), rgba(22,28,38,.42);
+  box-shadow: inset 0 1px .5px rgba(255,255,255,.28), inset 0 0 0 1px rgba(255,255,255,.08), 0 10px 30px rgba(0,0,0,.25);
+}
+.seg .thumb { background: linear-gradient(180deg, rgba(255,255,255,.34), rgba(255,255,255,.12)); box-shadow: inset 0 1px .5px rgba(255,255,255,.7), 0 2px 8px rgba(0,0,0,.25); }
+.primary { color: #fff; background: linear-gradient(180deg, rgba(150,185,255,.55), rgba(3,75,255,.82) 60%, rgba(3,60,220,.9)); box-shadow: inset 0 1px 1px rgba(255,255,255,.65), inset 0 -2px 4px rgba(0,20,90,.35), inset 0 0 0 1px rgba(255,255,255,.18), 0 10px 28px rgba(3,75,255,.38); }
+.primary:disabled { opacity: .45; }
+.add { background: linear-gradient(180deg, rgba(120,160,255,.35), rgba(3,75,255,.25)); color: #CFE0FF; box-shadow: inset 0 1px .5px rgba(255,255,255,.5), inset 0 0 0 1px rgba(255,255,255,.12); }
+.add.on { background: rgba(255,255,255,.08); color: var(--text-2); box-shadow: inset 0 0 0 1px rgba(255,255,255,.1); }
+.subtabs button[aria-pressed="true"] { background: linear-gradient(180deg, rgba(150,185,255,.6), rgba(3,75,255,.85)); color: #fff; }
+.badge.new { background: rgba(3,75,255,.55); color: #fff; }
+.kb { background: var(--kb-bg); box-shadow: inset 0 1px .5px rgba(255,255,255,.25); }
+.key { box-shadow: inset 0 1px .5px rgba(255,255,255,.25), 0 1px 0 rgba(0,0,0,.25); }
+.ta { background: rgba(255,255,255,.07); box-shadow: inset 0 0 0 1px rgba(255,255,255,.08); }
+.ta button[aria-pressed="true"] { background: linear-gradient(180deg, rgba(255,255,255,.3), rgba(255,255,255,.12)); box-shadow: inset 0 1px .5px rgba(255,255,255,.6); }
+.panel .box { background: rgba(255,255,255,.08); box-shadow: inset 0 1px .5px rgba(255,255,255,.25), inset 0 0 0 1px rgba(255,255,255,.08); }
+.panel .btns button, .acts-grid button { background: linear-gradient(180deg, rgba(255,255,255,.2), rgba(255,255,255,.08)); box-shadow: inset 0 1px .5px rgba(255,255,255,.45); }
+.toggle[aria-checked="true"] { background: var(--brand); }
+.chat { background: radial-gradient(circle at 80% 92%, rgba(3,75,255,.35), transparent 45%), #000; }
+.hero { background: radial-gradient(circle at 70% 20%, rgba(255,255,255,.9), transparent 50%), linear-gradient(160deg, #EAF0FF, #B9CCFF 60%, #8FAEFF); box-shadow: inset 0 1px 1px rgba(255,255,255,.9), inset 0 0 0 1px rgba(255,255,255,.55), 0 14px 40px rgba(3,75,255,.3); }
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) { .kb { background: #26282E; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
 </style>
 
 <div class="stage">
   <aside class="toc" aria-label="Screens">
-    <h1>ShogunAI Prototype</h1>
+    <h1 style="display:flex;align-items:center;gap:10px"><svg viewBox="280 195 976 630" width="34" height="22" fill="#034BFF" aria-hidden="true"><polygon points="758,203 585,458 758,730"/><polygon points="777,203 950,458 777,730"/><polygon points="287,302 567,468 737,730 464,594"/><polygon points="1249,302 969,468 799,730 1068,594"/><polygon points="460,616 622,697 350,818"/><polygon points="1075,616 914,697 1186,818"/></svg>ShogunAI Prototype</h1>
     <p>An interactive mock of the iPhone recreation in <code>clones/acti</code>. Same tokens, layout and flow as the SwiftUI code. Hold the space bar on the demo keyboard to open the Wheel.</p>
     <nav id="toc"></nav>
     <div class="note">Prototype only: AI answers are canned, purchases are disabled, and names, logo and copy are placeholders.</div>
@@ -342,7 +373,8 @@ const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;',
 // ---------- small renderers ----------
 const actIcon = (a, s = 48) => a.id === 'ai' ? orb(s) : `<span class="act-icon" style="width:${s}px;height:${s}px;background:linear-gradient(135deg,${a.c1},${a.c2});font-size:${Math.round(s * .42)}px">${esc(a.glyph)}</span>`;
 const orb = (s, cls = '') => `<span class="orb ${cls}" style="width:${s}px;height:${s}px;font-size:${s * .4}px" aria-hidden="true"></span>`;
-const brand = (s = 40) => { const d = s * .46; return `<span class="brand" style="gap:${s * .08}px" aria-hidden="true">${[['S', 'o'], ['G', 'f'], ['A', 'f'], ['I', 'o']].map(([l, k]) => `<i class="${k}" style="width:${d}px;height:${d}px;font-size:${d * .55}px">${l}</i>`).join('')}</span>`; };
+const LOGO = '<polygon points="758,203 585,458 758,730"/><polygon points="777,203 950,458 777,730"/><polygon points="287,302 567,468 737,730 464,594"/><polygon points="1249,302 969,468 799,730 1068,594"/><polygon points="460,616 622,697 350,818"/><polygon points="1075,616 914,697 1186,818"/>';
+const brand = (s = 40, color = 'var(--brand)') => `<svg viewBox="280 195 976 630" width="${s}" height="${Math.round(s * 630 / 976)}" fill="${color}" role="img" aria-label="ShogunAI logo">${LOGO}</svg>`;
 const circle = (icon, action, hl = false, label = icon) => `<button class="circle-btn ${hl ? 'hl' : ''}" data-a="${action}" aria-label="${label}">${ic(icon)}</button>`;
 const toggle = (key, on, green = false) => `<button class="toggle ${green ? 'green' : ''}" role="switch" aria-checked="${on}" data-a="tog" data-k="${key}"></button>`;
 const srow = (icon, t, sub, right, action = '', noicon = false) => `<${action ? 'button' : 'div'} class="srow ${noicon ? 'noicon' : ''}" ${action ? `data-a="${action}"` : ''}>${icon ? `<span class="ic">${ic(icon)}</span>` : ''}<span class="grow"><div class="tt">${t}</div>${sub ? `<div class="st">${sub}</div>` : ''}</span>${right ?? ''}</${action ? 'button' : 'div'}>`;
@@ -354,7 +386,7 @@ const status = (dark = false) => `<div class="status"><span>9:41</span><span cla
 
 // ---------- screens ----------
 const V = {};
-V.intro = () => `<div class="screen bg-grad fadein"><div class="col" style="align-items:center;padding-top:40px;gap:20px">${brand(44)}<h1 class="h-display">Your keys,<br>now with actions</h1></div>
+V.intro = () => `<div class="screen bg-grad fadein"><div class="col" style="align-items:center;padding-top:40px;gap:20px"><span style="filter:drop-shadow(0 0 18px rgba(3,75,255,.7)) drop-shadow(0 0 2px rgba(255,255,255,.35))">${brand(88)}</span><h1 class="h-display">Your keys,<br>now with actions</h1></div>
   <div class="px" style="margin-top:28px">${introDemo()}</div><div style="flex:1"></div>
   <div class="px" style="padding-bottom:34px"><button class="primary" data-a="go" data-s="fullAccess">Enable ShogunAI Keyboard</button></div></div>`;
 let introBeat = 0;
@@ -378,7 +410,7 @@ V.ready = () => `<div class="screen bg-grad fadein"><div class="col" style="alig
   <div class="px" style="margin-top:28px"><div class="sgroup">${[['globe', '90+ languages'], ['mic', 'Free voice dictation'], ['sparkles', 'Thousands of community Acts']].map(([i, t]) => `<div class="srow"><span class="ic" style="color:var(--accent)">${ic(i)}</span><span class="grow" style="font-size:15px;font-weight:500">${t}</span></div>`).join('')}</div></div>
   <div style="flex:1"></div><p class="t-cap" style="text-align:center;margin:0 0 14px">Keyboard not showing up? <span style="color:var(--accent)">See how</span></p>
   <div class="px" style="padding-bottom:34px"><button class="primary" data-a="go" data-s="actIntro">Explore ShogunAI</button></div></div>`;
-const authorCard = (a, follow = false) => `<div class="card-alt row" style="padding:14px;gap:12px">${a.official ? `<span style="width:48px;height:48px;border-radius:50%;background:#000;display:grid;place-items:center">${brand(36)}</span>` : `<span style="width:48px;height:48px;border-radius:50%;background:var(--raised);display:grid;place-items:center;color:var(--text-2)">${ic('person', 22)}</span>`}<span class="grow"><div style="font-size:17px;font-weight:500">${esc(a.author)} ${a.official ? '<span style="color:var(--accent)">✔︎</span>' : ''}</div><div class="t-cap">${a.authorActs} Acts</div></span>${follow ? `<button style="height:32px;padding:0 16px;border-radius:16px;background:var(--cta-bg);color:var(--cta-fg);font-size:13px;font-weight:600">Follow</button>` : ''}</div>`;
+const authorCard = (a, follow = false) => `<div class="card-alt row" style="padding:14px;gap:12px">${a.official ? `<span style="width:48px;height:48px;border-radius:50%;background:#fff;display:grid;place-items:center">${brand(34)}</span>` : `<span style="width:48px;height:48px;border-radius:50%;background:var(--raised);display:grid;place-items:center;color:var(--text-2)">${ic('person', 22)}</span>`}<span class="grow"><div style="font-size:17px;font-weight:500">${esc(a.author)} ${a.official ? '<span style="color:var(--accent)">✔︎</span>' : ''}</div><div class="t-cap">${a.authorActs} Acts</div></span>${follow ? `<button style="height:32px;padding:0 16px;border-radius:16px;background:var(--cta-bg);color:var(--cta-fg);font-size:13px;font-weight:600">Follow</button>` : ''}</div>`;
 const overview = t => `<div class="card-alt" style="padding:14px"><div class="muted" style="font-size:15px;font-weight:500;margin-bottom:10px">Act Overview</div><div class="t-body" style="padding:14px;border-radius:16px;box-shadow:inset 0 0 0 1px var(--hair)">${esc(t)}</div></div>`;
 V.actIntro = () => `<div class="screen bg-grad fadein"><div class="px">${circle('back', 'go', false, 'Back').replace('data-a="go"', 'data-a="go" data-s="ready"')}</div><div class="col" style="align-items:center;gap:14px;margin-top:8px">${orb(84, 'pulse')}<h2 class="h-title">Shogun AI</h2></div>
   <div class="px col" style="gap:12px;margin-top:20px">${authorCard(AI)}${overview(AI.overview)}</div><div style="flex:1"></div>
@@ -528,7 +560,7 @@ V.home = () => {
 };
 function allList() {
   return `<div class="px"><button class="hero" data-a="open" data-id="ai"><div class="kbill"><div class="r" style="font-size:10px;gap:14px;font-weight:500">✎ Type <span style="opacity:.5">✦ Act</span><span style="width:120px"></span>${ic('clip', 10)} ${ic('mic', 10)} Voice</div><div class="r">${[...'qwertyuiop'].map(c => `<i>${c}</i>`).join('')}</div><div class="r b">${'<i></i>'.repeat(9)}</div></div>
-    <div class="center">${orb(72)}<b>Shogun AI</b></div><span style="position:absolute;left:14px;top:14px;opacity:.6;filter:invert(1)">${brand(26)}</span></button>
+    <div class="center">${orb(72)}<b>Shogun AI</b></div><span style="position:absolute;left:14px;top:12px">${brand(30)}</span></button>
     <button class="card row" style="margin-top:16px;width:100%;height:72px;border-radius:20px;background:#1A2834;padding-right:14px;gap:12px;text-align:left" data-a="toast" data-m="Tips: hold space · swipe space · Act tab · assign keys · Voice">
       <span style="width:60px;display:grid;place-items:center;font-size:28px">💡</span><span class="grow"><div class="row" style="gap:6px"><span style="font-size:17px;font-weight:500">ShogunAI 101</span><span class="badge new">New</span></div><div class="t-cap">Tips for using the ShogunAI keyboard</div></span><span style="width:34px;height:34px;border-radius:50%;background:#fff;color:#11161D;display:grid;place-items:center">${ic('play', 13)}</span></button></div>
     <div class="hsec" style="margin-top:20px">${CATS.map(c => `<button class="chip" data-a="jump" data-c="${c}">${title(c)}</button>`).join('')}</div>

@@ -11,7 +11,12 @@
 
 `prototype/index.html` は、SwiftUI 実装と同じトークン・レイアウト・流れで作った HTML 版のプロトタイプです（Xcode なしで触れる確認用）。AI の応答は固定、購入は無効です。
 
-## 動かし方（Mac + Xcode 15 以上）
+## デザイン
+
+- ロゴはユーザー提供の ShogunAI ロゴをベクター化して使用（`ShogunLogoShape`）。アプリアイコンも同じロゴから生成
+- リキッドグラス: iOS 26 + Xcode 26 では `glassEffect` を使い、それ以外では見た目を近似（`Shared/DesignSystem/LiquidGlass.swift`）
+
+## 動かし方（Mac + Xcode 15 以上、リキッドグラス本来の表示は Xcode 26 + iOS 26）
 
 ```bash
 brew install xcodegen

@@ -168,7 +168,7 @@ struct HeroCard: View {
             .offset(y: -6)
 
             VStack {
-                HStack { BrandMark(size: 26).colorInvert().opacity(0.6); Spacer() }
+                HStack { BrandMark(size: 30); Spacer() }
                 Spacer()
             }
             .padding(14)
@@ -281,9 +281,7 @@ struct ComposerBar: View {
             }
             .padding(.horizontal, 18)
             .frame(height: KA.Size.composer)
-            .background(.ultraThinMaterial, in: Capsule())
-            .background(Capsule().fill(KA.C.cardAlt.opacity(0.8)))
-            .overlay(Capsule().stroke(KA.C.hairline, lineWidth: 1))
+            .liquidGlass(in: Capsule(), interactive: true)
         }
         .buttonStyle(.pressable)
     }

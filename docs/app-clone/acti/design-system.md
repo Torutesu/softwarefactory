@@ -85,3 +85,13 @@
 | Coachmark | ツールチップ + 手のアイコン | 背景を暗くする | デモ・ホーム |
 | ThinkingPanel | Thinking / 結果 | キーボードの位置に出る | デモ |
 | OrbIcon | 静止 / パルス | Acti AI の象徴 | 各所 |
+
+## ShogunAI 版での変更（2026-11-09）
+録画から計測した上記の値をベースに、ユーザーの指定で次を変更した。
+
+- **ブランドカラー**: ロゴの青 `#034BFF`（`KA.C.brand`）。暗い背景の文字用には明るくした `#6B95FF`（`KA.C.accent`）
+- **リキッドグラス**: 操作部品（円形ボタン・セグメント・チップ・Add・下部の入力バー・副ボタン）は `liquidGlass(.control)`、カードと設定グループは `liquidGlass(.surface)`、主ボタンと選択中のチップは青を乗せた `liquidGlass(.prominent)`
+  - iOS 26 以降は SwiftUI の `glassEffect`（`Shared/DesignSystem/LiquidGlass.swift`）。それ以前と Xcode 26 未満は Material + 上辺のハイライト + 縁の光で近似
+  - 背景にはロゴの青の光をぼかして敷き（`BrandGlowBackground`）、ガラスが色を拾って見えるようにした
+- **キーボード**: 背景とキーを半透明にした（`kbBg` / `kbKey` などのトークン）
+- **AI のオーブ**: ロゴの青系のグラデーションに変更

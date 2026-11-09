@@ -10,10 +10,10 @@ struct PrimaryButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(KA.F.button)
-            .foregroundStyle(KA.C.ctaText)
+            .foregroundStyle(.white)
             .frame(maxWidth: .infinity)
             .frame(height: KA.Size.primaryButton)
-            .background(Capsule().fill(KA.C.ctaBg))
+            .liquidGlass(.prominent, in: Capsule(), interactive: true)
             .opacity(isEnabled ? 1 : 0.35)
             .scaleEffect(configuration.isPressed ? 0.97 : 1)
             .animation(KA.M.press, value: configuration.isPressed)
@@ -27,7 +27,7 @@ struct SecondaryButtonStyle: ButtonStyle {
             .foregroundStyle(KA.C.text)
             .frame(maxWidth: .infinity)
             .frame(height: 48)
-            .background(RoundedRectangle(cornerRadius: KA.R.inner, style: .continuous).fill(KA.C.raised))
+            .liquidGlass(in: RoundedRectangle(cornerRadius: KA.R.inner, style: .continuous), interactive: true)
             .scaleEffect(configuration.isPressed ? 0.97 : 1)
             .animation(KA.M.press, value: configuration.isPressed)
     }
@@ -58,8 +58,8 @@ struct CircleIconButton: View {
                 .font(.system(size: 18, weight: .medium))
                 .foregroundStyle(KA.C.text)
                 .frame(width: KA.Size.circleButton, height: KA.Size.circleButton)
-                .background(Circle().fill(KA.C.raised.opacity(0.85)))
-                .overlay(Circle().stroke(highlighted ? Color.white : KA.C.hairline, lineWidth: highlighted ? 2 : 1))
+                .liquidGlass(in: Circle(), interactive: true)
+                .overlay { if highlighted { Circle().stroke(Color.white, lineWidth: 2) } }
         }
         .buttonStyle(.pressable)
     }
@@ -98,8 +98,7 @@ struct SegmentedPill<Option: Hashable>: View {
         }
         .padding(4)
         .frame(width: width, height: height)
-        .background(Capsule().fill(KA.C.segmentTrack.opacity(0.9)))
-        .overlay(Capsule().stroke(KA.C.hairline, lineWidth: 1))
+        .liquidGlass(in: Capsule())
     }
 }
 
@@ -140,10 +139,10 @@ struct Chip: View {
         Button(action: action) {
             Text(title)
                 .font(KA.F.chip)
-                .foregroundStyle(selected ? KA.C.ctaText : KA.C.text)
+                .foregroundStyle(selected ? .white : KA.C.text)
                 .padding(.horizontal, 18)
                 .frame(height: KA.Size.chip)
-                .background(Capsule().fill(selected ? KA.C.ctaBg : KA.C.raised.opacity(0.7)))
+                .liquidGlass(selected ? .prominent : .control, in: Capsule(), interactive: true)
         }
         .buttonStyle(.pressable)
     }
@@ -190,7 +189,7 @@ struct AddPill: View {
         Button(action: action) {
             Text(added ? "Added" : "Add")
                 .font(KA.F.bodyMedium)
-                .foregroundStyle(added ? KA.C.textSecondary : KA.C.accent)
+                .foregroundStyle(added ? KA.C.textSecondary : Color(hex: 0xCFE0FF))
                 .frame(width: 64, height: KA.Size.addPill)
                 .background(Capsule().fill(added ? KA.C.raised.opacity(0.6) : KA.C.pillAdd))
         }
@@ -264,22 +263,42 @@ struct OrbIcon: View {
 @MainActor
 struct BrandMark: View {
     var size: CGFloat = 40
+    var color: Color = KA.C.brand
 
     var body: some View {
-        let d = size * 0.46
-        VStack(spacing: size * 0.08) {
-            HStack(spacing: size * 0.08) { dot("S", filled: false, d); dot("G", filled: true, d) }
-            HStack(spacing: size * 0.08) { dot("A", filled: true, d); dot("I", filled: false, d) }
-        }
+        ShogunLogoShape()
+            .fill(color)
+            .frame(width: size, height: size * ShogunLogoShape.aspect)
+            .accessibilityLabel("ShogunAI")
+    }
+}
+
+/// ユーザー提供のロゴ (6枚の多角形) をベクターで再現したもの。元画像の座標 (viewBox 280,195 976×630) を正規化している
+struct ShogunLogoShape: Shape {
+    static let aspect: CGFloat = 630.0 / 976.0
+    private static let raw: [[(CGFloat, CGFloat)]] = [
+        [(758, 203), (585, 458), (758, 730)],
+        [(777, 203), (950, 458), (777, 730)],
+        [(287, 302), (567, 468), (737, 730), (464, 594)],
+        [(1249, 302), (969, 468), (799, 730), (1068, 594)],
+        [(460, 616), (622, 697), (350, 818)],
+        [(1075, 616), (914, 697), (1186, 818)],
+    ]
+    private static let polygons: [[CGPoint]] = raw.map { poly in
+        poly.map { CGPoint(x: ($0.0 - 280) / 976, y: ($0.1 - 195) / 630) }
     }
 
-    private func dot(_ letter: String, filled: Bool, _ d: CGFloat) -> some View {
-        Text(letter)
-            .font(.system(size: d * 0.55, weight: .bold, design: .rounded))
-            .foregroundStyle(filled ? Color.black : Color.white)
-            .frame(width: d, height: d)
-            .background(Circle().fill(filled ? Color.white : Color.white.opacity(0.18)))
-            .overlay(Circle().stroke(Color.white.opacity(0.6), lineWidth: 1))
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        for poly in Self.polygons {
+            guard let first = poly.first else { continue }
+            path.move(to: CGPoint(x: rect.minX + first.x * rect.width, y: rect.minY + first.y * rect.height))
+            for p in poly.dropFirst() {
+                path.addLine(to: CGPoint(x: rect.minX + p.x * rect.width, y: rect.minY + p.y * rect.height))
+            }
+            path.closeSubpath()
+        }
+        return path
     }
 }
 
@@ -309,8 +328,8 @@ struct CardBackground: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .background(RoundedRectangle(cornerRadius: radius, style: .continuous).fill(fill))
-            .overlay(RoundedRectangle(cornerRadius: radius, style: .continuous).stroke(KA.C.hairline, lineWidth: 1))
+            .background(RoundedRectangle(cornerRadius: radius, style: .continuous).fill(fill.opacity(0.35)))
+            .liquidGlass(.surface, in: RoundedRectangle(cornerRadius: radius, style: .continuous))
     }
 }
 
@@ -321,10 +340,7 @@ extension View {
 
     /// 画面背景 (上部にうっすら青いグラデーション)
     func screenBackground() -> some View {
-        background(
-            LinearGradient(colors: [KA.C.bgGradientTop, KA.C.bg, KA.C.bg], startPoint: .top, endPoint: .bottom)
-                .ignoresSafeArea()
-        )
+        background(BrandGlowBackground())
     }
 }
 
