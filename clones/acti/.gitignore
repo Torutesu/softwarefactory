@@ -1,0 +1,8 @@
+*.xcodeproj/
+DerivedData/
+build/
+xcuserdata/
+App/Info.plist
+App/Keyact.entitlements
+Keyboard/Info.plist
+Keyboard/KeyactKeyboard.entitlements
