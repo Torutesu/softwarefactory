@@ -1,0 +1,689 @@
+<title>Keyact Prototype</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap">
+<style>
+/* Layout: 402×874pt の iPhone フレームを中央に置き、左に画面ジャンプ用の目次。単一のダークな見た目 (録画がダークモードのため) */
+:root {
+  color-scheme: dark;
+  /* Color — Shared/DesignSystem/Tokens.swift と同じ値 */
+  --bg: #11161D; --bg-top: #131B28; --card: #242A31; --card-alt: #272C35; --raised: #2F3742;
+  --seg-track: #2A2F38; --seg-thumb: #595E6C; --pill-add: #2A3644; --accent: #5094D7;
+  --badge-bg: #3C6E9C; --badge-fg: #DCE8ED; --cta-bg: #F1F2F7; --cta-fg: #11161D;
+  --text: #FFFFFF; --text-2: #989EA5; --text-3: #5C626B; --hair: rgba(255,255,255,.08); --divider: rgba(255,255,255,.06);
+  --danger: #E5484D; --success: #34C759; --hero-a: #E7EAF2; --hero-b: #C9D3E8;
+  --kb-bg: #222222; --kb-key: #414141; --kb-special: #2E2E2E; --kb-pressed: #5A5A5A; --kb-box: #303030; --kb-hl: #3D7BF7;
+  --chat-bg: #000000; --bubble-in: #242328; --bubble-out: #1F8BFF; --send: #52E76F; --input-bg: #1B1B1B;
+  --stage: #07090C; --stage-fg: #C9CED6;
+  /* Type */
+  --font: "Outfit", ui-rounded, "SF Pro Rounded", system-ui, -apple-system, sans-serif;
+  --font-sys: -apple-system, "SF Pro Text", system-ui, "Helvetica Neue", Arial, sans-serif;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body { background: var(--stage); color: var(--stage-fg); font-family: var(--font); -webkit-font-smoothing: antialiased; }
+button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+button:focus-visible, [tabindex]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+input, textarea { font: inherit; color: inherit; }
+
+.stage { min-height: 100%; display: flex; gap: 32px; justify-content: center; align-items: flex-start;
+  padding-block: 24px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.toc { width: 220px; flex: none; position: sticky; top: 24px; display: flex; flex-direction: column; gap: 14px; }
+.toc h1 { margin: 0; font-size: 22px; font-weight: 600; color: #fff; letter-spacing: -.01em; }
+.toc p { margin: 0; font-size: 13px; line-height: 1.5; color: #8A919B; }
+.toc nav { display: flex; flex-direction: column; gap: 2px; }
+.toc .grp { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: #5C626B; margin: 10px 0 4px; }
+.toc nav button { text-align: left; padding: 7px 10px; border-radius: 8px; font-size: 14px; color: #C9CED6; }
+.toc nav button:hover { background: #151A21; }
+.toc nav button[aria-current="true"] { background: #1C2430; color: #fff; }
+.toc .note { font-size: 12px; color: #6B727C; border-top: 1px solid #1A1F27; padding-top: 12px; }
+
+.device { flex: none; width: 402px; height: 874px; border-radius: 56px; padding: 10px; background: #1A1C20;
+  box-shadow: 0 0 0 1px #2A2D33, 0 30px 80px rgba(0,0,0,.6); }
+.phone { position: relative; width: 100%; height: 100%; border-radius: 46px; overflow: hidden; background: var(--bg); color: var(--text); }
+@media (max-width: 720px) {
+  .stage { flex-direction: column; align-items: center; gap: 16px; }
+  .toc { position: static; width: 100%; max-width: 402px; }
+  .toc nav { flex-direction: row; flex-wrap: wrap; }
+  .toc .grp { width: 100%; }
+}
+@media (max-width: 430px) {
+  .device { width: 100%; max-width: 402px; height: auto; aspect-ratio: 402 / 874; border-radius: 40px; padding: 6px; }
+  .phone { border-radius: 34px; }
+}
+
+/* status bar */
+.status { position: absolute; inset: 0 0 auto; height: 54px; display: flex; align-items: center; justify-content: space-between; padding: 0 30px 0 38px; z-index: 40; font: 600 16px var(--font-sys); pointer-events: none; }
+.island { position: absolute; left: 50%; top: 11px; transform: translateX(-50%); width: 124px; height: 36px; border-radius: 20px; background: #000; }
+.status .r { display: flex; gap: 6px; align-items: center; font-size: 13px; }
+.batt { border: 1.5px solid currentColor; border-radius: 4px; padding: 0 3px; font-size: 11px; }
+.screen { position: absolute; inset: 0; padding-top: 54px; display: flex; flex-direction: column; }
+.bg-grad { background: linear-gradient(var(--bg-top), var(--bg) 40%); }
+.scroll { flex: 1; overflow-y: auto; overflow-x: hidden; scrollbar-width: none; }
+.scroll::-webkit-scrollbar { display: none; }
+.home-ind { position: absolute; bottom: 8px; left: 50%; transform: translateX(-50%); width: 134px; height: 5px; border-radius: 3px; background: rgba(255,255,255,.7); z-index: 50; pointer-events: none; }
+
+/* components */
+.px { padding-left: 12px; padding-right: 12px; }
+.pxs { padding-left: 16px; padding-right: 16px; }
+.row { display: flex; align-items: center; }
+.col { display: flex; flex-direction: column; }
+.grow { flex: 1; min-width: 0; }
+.circle-btn { width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; background: rgba(47,55,66,.85); box-shadow: inset 0 0 0 1px var(--hair); flex: none; }
+.circle-btn.hl { box-shadow: inset 0 0 0 2px #fff; }
+.circle-btn svg { width: 20px; height: 20px; }
+.primary { height: 52px; border-radius: 26px; width: 100%; background: var(--cta-bg); color: var(--cta-fg); font-size: 17px; font-weight: 600; transition: transform .1s; }
+.primary:active { transform: scale(.97); }
+.primary:disabled { opacity: .35; }
+.secondary { height: 48px; border-radius: 16px; flex: 1; background: var(--raised); font-size: 15px; font-weight: 500; display: flex; align-items: center; justify-content: center; gap: 6px; }
+.card { background: var(--card); border-radius: 24px; box-shadow: inset 0 0 0 1px var(--hair); }
+.card-alt { background: var(--card-alt); border-radius: 20px; box-shadow: inset 0 0 0 1px var(--hair); }
+.h-display { font-size: 28px; font-weight: 600; text-align: center; line-height: 1.2; text-wrap: balance; margin: 0; }
+.h-title { font-size: 20px; font-weight: 600; margin: 0; }
+.t-body { font-size: 15px; line-height: 1.45; }
+.t-cap { font-size: 13px; color: var(--text-2); line-height: 1.4; }
+.t-micro { font-size: 11px; font-weight: 500; }
+.muted { color: var(--text-2); }
+.seg { width: 180px; height: 44px; border-radius: 22px; padding: 4px; background: rgba(42,47,56,.9); box-shadow: inset 0 0 0 1px var(--hair); display: flex; position: relative; }
+.seg button { flex: 1; z-index: 1; font-size: 17px; font-weight: 500; color: var(--text-2); }
+.seg button[aria-pressed="true"] { color: var(--text); }
+.seg .thumb { position: absolute; top: 4px; bottom: 4px; width: calc(50% - 4px); border-radius: 18px; background: var(--seg-thumb); transition: transform .3s cubic-bezier(.3,1.2,.5,1); }
+.chip { height: 36px; padding: 0 18px; border-radius: 18px; background: rgba(47,55,66,.7); font-size: 16px; font-weight: 500; white-space: nowrap; flex: none; }
+.subtabs { display: flex; gap: 8px; }
+.subtabs button { height: 30px; padding: 0 14px; border-radius: 15px; background: var(--card); font-size: 13px; font-weight: 500; color: var(--text-2); }
+.subtabs button[aria-pressed="true"] { background: var(--cta-bg); color: var(--cta-fg); }
+.badge { font-size: 11px; font-weight: 500; padding: 2px 6px; border-radius: 5px; }
+.badge.new { background: var(--badge-bg); color: var(--badge-fg); }
+.badge.free { box-shadow: inset 0 0 0 1px var(--text-3); color: var(--text-2); }
+.badge.pro { background: var(--cta-bg); color: var(--cta-fg); }
+.add { width: 64px; height: 30px; border-radius: 15px; background: var(--pill-add); color: var(--accent); font-size: 15px; font-weight: 500; flex: none; }
+.add.on { background: rgba(47,55,66,.6); color: var(--text-2); }
+.act-icon { border-radius: 50%; display: grid; place-items: center; flex: none; position: relative; color: #fff; box-shadow: inset 0 2px 6px rgba(255,255,255,.35); }
+.act-icon svg { width: 46%; height: 46%; filter: drop-shadow(0 1px 1px rgba(0,0,0,.2)); }
+.act-row { display: flex; align-items: center; gap: 14px; height: 70px; width: 100%; text-align: left; position: relative; }
+.act-row .nm { font-size: 17px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.act-row + .act-row::before { content: ""; position: absolute; top: 0; left: 62px; right: 0; height: 1px; background: var(--divider); }
+.orb { display: inline-block; vertical-align: middle; border-radius: 50%; position: relative; flex: none; background: conic-gradient(from 0deg, #6FD3FF, #6A7BFF, #B07BFF, #5EE6E0, #6FD3FF); box-shadow: 0 0 22px rgba(106,123,255,.5); }
+.orb::before { content: ""; position: absolute; inset: 0; border-radius: 50%; background: radial-gradient(circle at 25% 20%, rgba(255,255,255,.85), transparent 60%); }
+.orb::after { content: "✦"; position: absolute; inset: 27%; border-radius: 22%; background: rgba(255,255,255,.22); color: #fff; display: grid; place-items: center; font-size: 60%; }
+.orb.gray { filter: saturate(0); box-shadow: none; }
+.pulse { animation: pulse 1.5s ease-in-out infinite; }
+@keyframes pulse { 50% { transform: scale(1.08); } }
+.brand { display: grid; grid-template-columns: 1fr 1fr; gap: 3px; flex: none; }
+.brand i { border-radius: 50%; display: grid; place-items: center; font: 700 10px/1 ui-rounded, var(--font); font-style: normal; box-shadow: inset 0 0 0 1px rgba(255,255,255,.6); }
+.brand i.f { background: #fff; color: #000; } .brand i.o { background: rgba(255,255,255,.18); color: #fff; }
+.sgroup-title { font-size: 15px; font-weight: 500; color: var(--text-2); padding: 0 4px 8px; display: flex; justify-content: space-between; }
+.sgroup { background: var(--card); border-radius: 20px; box-shadow: inset 0 0 0 1px var(--hair); }
+.srow { display: flex; align-items: center; gap: 14px; padding: 14px 16px; min-height: 56px; width: 100%; text-align: left; position: relative; }
+.srow + .srow::before { content: ""; position: absolute; top: 0; left: 56px; right: 0; height: 1px; background: var(--divider); }
+.srow.noicon + .srow.noicon::before, .srow.noicon + .srow::before { left: 16px; }
+.srow .ic { width: 26px; display: grid; place-items: center; flex: none; }
+.srow .ic svg { width: 20px; height: 20px; }
+.srow .tt { font-size: 17px; font-weight: 500; }
+.srow .st { font-size: 13px; color: var(--text-2); margin-top: 2px; line-height: 1.35; }
+.chev { color: var(--text-3); display: flex; gap: 6px; align-items: center; font-size: 13px; }
+.chev span { color: var(--text-2); }
+.toggle { width: 51px; height: 31px; border-radius: 16px; background: #39393D; position: relative; flex: none; transition: background .2s; }
+.toggle::after { content: ""; position: absolute; top: 2px; left: 2px; width: 27px; height: 27px; border-radius: 50%; background: #fff; transition: transform .2s; box-shadow: 0 2px 4px rgba(0,0,0,.3); }
+.toggle[aria-checked="true"] { background: var(--accent); }
+.toggle[aria-checked="true"]::after { transform: translateX(20px); }
+.toggle.green[aria-checked="true"] { background: var(--success); }
+.steps { padding: 16px; }
+.steps input[type=range] { width: 100%; accent-color: #fff; }
+.steps .lbls { display: flex; justify-content: space-between; font-size: 11px; color: var(--text-2); margin-top: 4px; }
+.steps .lbls b { color: var(--text); font-weight: 500; }
+.navh { height: 56px; display: grid; grid-template-columns: 44px 1fr 44px; align-items: center; padding: 0 16px; gap: 8px; flex: none; }
+.navh h2 { margin: 0; text-align: center; font-size: 18px; font-weight: 600; }
+.coach { background: #fff; color: #000; font-size: 13px; font-weight: 500; padding: 8px 12px; border-radius: 10px; box-shadow: 0 4px 16px rgba(0,0,0,.3); white-space: nowrap; }
+.hand { font-size: 32px; color: #8FB4FF; animation: tap 1.2s ease-in-out infinite; display: inline-block; filter: drop-shadow(0 2px 4px rgba(0,0,0,.3)); }
+@keyframes tap { 50% { transform: translateY(6px) scale(.92); } }
+.dots { display: inline-flex; gap: 4px; vertical-align: middle; }
+.dots i { width: 6px; height: 6px; border-radius: 50%; background: var(--text-2); animation: dot 1s infinite; }
+.dots i:nth-child(2) { animation-delay: .2s; } .dots i:nth-child(3) { animation-delay: .4s; }
+@keyframes dot { 0%, 100% { opacity: .3; } 30% { opacity: 1; } }
+.sheet-wrap { position: absolute; inset: 0; z-index: 30; background: rgba(0,0,0,.45); display: flex; align-items: flex-end; animation: fade .2s; }
+.sheet { width: 100%; height: calc(100% - 64px); background: var(--bg); border-radius: 22px 22px 0 0; display: flex; flex-direction: column; animation: up .3s cubic-bezier(.2,.9,.3,1); overflow: hidden; }
+.sheet.half { height: 58%; }
+@keyframes up { from { transform: translateY(100%); } }
+@keyframes fade { from { opacity: 0; } }
+.fadein { animation: fade .25s; }
+.toast { position: absolute; left: 50%; bottom: 110px; transform: translateX(-50%); background: rgba(40,44,52,.95); padding: 10px 16px; border-radius: 20px; font-size: 14px; z-index: 60; animation: fade .2s; white-space: nowrap; }
+
+/* keyboard */
+.kb { background: var(--kb-bg); flex: none; user-select: none; -webkit-user-select: none; touch-action: none; padding-bottom: 30px; }
+.kb-bar { height: 44px; display: flex; align-items: center; gap: 8px; padding: 0 8px; }
+.ta { display: flex; padding: 2px; border-radius: 15px; background: var(--kb-special); position: relative; }
+.ta button { height: 26px; padding: 0 10px; border-radius: 13px; font-size: 13px; font-weight: 500; color: var(--text-2); display: flex; align-items: center; gap: 4px; }
+.ta button[aria-pressed="true"] { background: var(--kb-key); color: #fff; }
+.kb-pill { height: 28px; padding: 0 10px; border-radius: 14px; background: var(--kb-key); font-size: 13px; font-weight: 500; display: flex; align-items: center; gap: 4px; }
+.kb-body { height: 220px; position: relative; }
+.keys { position: absolute; inset: 0; padding: 8px 3px 4px; display: flex; flex-direction: column; gap: 12px; transition: opacity .2s; }
+.keys.dim { opacity: .25; }
+.krow { display: flex; gap: 6px; justify-content: center; }
+.key { height: 42px; border-radius: 8px; background: var(--kb-key); box-shadow: 0 1px 0 rgba(0,0,0,.35); display: grid; place-items: center; font: 400 23px var(--font-sys); position: relative; flex: 1; }
+.key.sp { background: var(--kb-special); font-size: 16px; }
+.key.down { background: var(--kb-pressed); }
+.key .pv { position: absolute; bottom: 48px; left: 50%; transform: translateX(-50%); width: 52px; height: 56px; border-radius: 10px; background: var(--kb-pressed); display: grid; place-items: center; font-size: 32px; pointer-events: none; }
+.key.space { flex: 5; font-size: 15px; color: var(--text-2); }
+.key.space.hl { box-shadow: inset 0 0 0 2px var(--kb-hl); background: var(--kb-pressed); }
+.wheel { position: absolute; inset: 0; pointer-events: none; }
+.wheel .halo { position: absolute; border-radius: 50%; background: radial-gradient(rgba(255,255,255,.28), rgba(143,180,255,.18) 50%, transparent 70%); }
+.wheel .ring { position: absolute; border-radius: 50%; box-shadow: inset 0 0 0 1px rgba(255,255,255,.18); }
+.wheel .slot { position: absolute; transform: translate(-50%, -50%); transition: transform .2s; }
+.wheel .slot.sel { transform: translate(-50%, -50%) scale(1.28); }
+.wheel .lbl { position: absolute; top: 4px; left: 0; right: 0; text-align: center; font-size: 13px; color: var(--text-2); }
+.wheel .lbl.on { color: #fff; font-size: 15px; font-weight: 500; }
+.wheel .plus { width: 40px; height: 40px; border-radius: 50%; border: 1px dashed var(--text-3); display: grid; place-items: center; color: var(--text-3); }
+.panel { position: absolute; inset: 0; padding: 8px 12px; display: flex; flex-direction: column; gap: 10px; }
+.panel .box { flex: 1; background: var(--kb-box); border-radius: 16px; box-shadow: inset 0 0 0 1px var(--hair); padding: 14px; overflow-y: auto; white-space: pre-wrap; font-size: 15px; line-height: 1.45; }
+.panel .btns { display: flex; gap: 8px; }
+.panel .btns button { flex: 1; height: 36px; border-radius: 18px; background: var(--kb-key); font-size: 13px; font-weight: 500; }
+.acts-grid { position: absolute; inset: 0; padding: 10px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; align-content: start; overflow-y: auto; }
+.acts-grid button { height: 48px; border-radius: 12px; background: var(--kb-key); display: flex; align-items: center; gap: 8px; padding: 0 10px; font-size: 13px; font-weight: 500; text-align: left; }
+.acts-grid button span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* chat */
+.chat { background: var(--chat-bg); }
+.bubble { max-width: 75%; padding: 10px 14px; border-radius: 18px; font: 16px/1.35 var(--font-sys); white-space: pre-wrap; }
+.bubble.in { background: var(--bubble-in); align-self: flex-start; }
+.bubble.out { background: var(--bubble-out); align-self: flex-end; }
+.composer { display: flex; gap: 10px; align-items: center; padding: 8px 12px; }
+.composer .plus { width: 38px; height: 38px; border-radius: 50%; background: var(--bubble-in); display: grid; place-items: center; font-size: 22px; flex: none; }
+.composer .field { flex: 1; min-width: 0; min-height: 40px; border-radius: 20px; background: var(--input-bg); box-shadow: inset 0 0 0 1px var(--hair); display: flex; align-items: center; padding: 4px 4px 4px 14px; gap: 6px; font: 16px var(--font-sys); }
+.composer .field .tx { flex: 1; min-width: 0; white-space: pre-wrap; max-height: 88px; overflow-y: auto; }
+.composer .field .tx.sel { background: rgba(61,123,247,.35); }
+.composer .send { width: 30px; height: 30px; border-radius: 50%; background: var(--send); display: grid; place-items: center; flex: none; color: #fff; font-weight: 700; }
+.composer .send:disabled { background: var(--text-3); }
+
+/* hero */
+.hero { height: 200px; border-radius: 28px; overflow: hidden; position: relative; background: linear-gradient(var(--hero-a), var(--hero-b)); box-shadow: inset 0 0 0 1px rgba(255,255,255,.5); display: block; width: 100%; }
+.hero .kbill { position: absolute; left: 0; right: 0; bottom: -18px; transform: perspective(380px) rotateX(28deg); color: #4A5568; display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.hero .kbill .r { display: flex; gap: 6px; }
+.hero .kbill .r i { width: 22px; height: 26px; border-radius: 6px; background: rgba(255,255,255,.75); display: grid; place-items: center; font: 14px ui-rounded, var(--font); font-style: normal; }
+.hero .kbill .r.b i { background: rgba(255,255,255,.5); filter: blur(2px); }
+.hero .center { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding-bottom: 12px; }
+.hero .center b { color: #11161D; font-size: 26px; font-weight: 600; }
+.hsec { display: flex; gap: 10px; overflow-x: auto; scroll-snap-type: x mandatory; padding: 0 12px; scrollbar-width: none; }
+.hsec::-webkit-scrollbar { display: none; }
+.hsec .card { flex: none; width: calc(100% - 48px); scroll-snap-align: start; padding: 6px 16px; }
+.composer-bar { position: absolute; left: 12px; right: 12px; bottom: 30px; height: 52px; border-radius: 26px; background: rgba(39,44,53,.85); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); box-shadow: inset 0 0 0 1px var(--hair); display: flex; align-items: center; gap: 10px; padding: 0 18px; font-size: 15px; color: var(--text-2); z-index: 5; text-align: left; }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+</style>
+
+<div class="stage">
+  <aside class="toc" aria-label="Screens">
+    <h1>Keyact Prototype</h1>
+    <p>An interactive mock of the iPhone recreation in <code>clones/acti</code>. Same tokens, layout and flow as the SwiftUI code. Hold the space bar on the demo keyboard to open the Wheel.</p>
+    <nav id="toc"></nav>
+    <div class="note">Prototype only: AI answers are canned, purchases are disabled, and names, logo and copy are placeholders.</div>
+  </aside>
+  <div class="device"><div class="phone" id="phone"></div></div>
+</div>
+
+<script>
+(() => {
+"use strict";
+// ---------- icons (inline SVG, stroke) ----------
+const P = {
+  gear: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>',
+  search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
+  x: '<path d="M18 6 6 18M6 6l12 12"/>',
+  back: '<path d="m15 18-6-6 6-6"/>',
+  chev: '<path d="m9 18 6-6-6-6"/>',
+  more: '<circle cx="5" cy="12" r="1.3" fill="currentColor"/><circle cx="12" cy="12" r="1.3" fill="currentColor"/><circle cx="19" cy="12" r="1.3" fill="currentColor"/>',
+  sparkles: '<path d="M12 3l1.8 4.9L19 9.5l-5.2 1.7L12 16l-1.8-4.8L5 9.5l5.2-1.6z"/><path d="M19 15l.7 1.8 1.8.7-1.8.7L19 20l-.7-1.8-1.8-.7 1.8-.7z"/>',
+  pencil: '<path d="M4 20h4L19 9l-4-4L4 16z"/>',
+  mic: '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/>',
+  clip: '<rect x="8" y="3" width="8" height="4" rx="1"/><path d="M8 5H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/>',
+  globe: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/>',
+  keyboard: '<rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/>',
+  wheel: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/>',
+  phone: '<rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/>',
+  laptop: '<rect x="4" y="5" width="16" height="11" rx="1"/><path d="M2 19h20"/>',
+  clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  link: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>',
+  chat: '<path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/>',
+  people: '<circle cx="9" cy="8" r="3"/><path d="M3 20a6 6 0 0 1 12 0M16 4a3 3 0 0 1 0 6M21 20a6 6 0 0 0-4-5.6"/>',
+  half: '<circle cx="12" cy="12" r="9"/><path d="M12 3v18" /><path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor"/>',
+  info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5h.01"/>',
+  qr: '<path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h2v2h-2zM18 18h2v2h-2zM14 18h2M18 14h2"/>',
+  person: '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>',
+  shuffle: '<path d="M16 3h5v5M4 20 21 3M21 16v5h-5M15 15l6 6M4 4l5 5"/>',
+  plusc: '<circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/>',
+  check: '<path d="m5 12 5 5L20 7"/>',
+  play: '<path d="M8 5v14l11-7z" fill="currentColor"/>',
+  shift: '<path d="M12 4 4 13h4v7h8v-7h4z"/>',
+  shiftf: '<path d="M12 4 4 13h4v7h8v-7h4z" fill="currentColor"/>',
+  del: '<path d="M21 5H8l-6 7 6 7h13z"/><path d="m16 9-5 6M11 9l5 6"/>',
+  ret: '<path d="M20 5v7H5"/><path d="m9 8-4 4 4 4"/>',
+  smile: '<circle cx="12" cy="12" r="9"/><path d="M8 14a5 5 0 0 0 8 0M9 9.5h.01M15 9.5h.01"/>',
+  video: '<rect x="2" y="6" width="14" height="12" rx="2"/><path d="m16 10 6-3v10l-6-3"/>',
+  up: '<path d="M12 19V5M5 12l7-7 7 7"/>',
+  arrowur: '<path d="M7 17 17 7M8 7h9v9"/>',
+};
+const ic = (n, s = 20, extra = '') => `<svg viewBox="0 0 24 24" width="${s}" height="${s}" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" ${extra} aria-hidden="true">${P[n] || ''}</svg>`;
+
+// ---------- data (Shared/Models/Act.swift と同じ) ----------
+const A = (id, name, summary, cat, uses, glyph, c1, c2, kind, extra = {}) => ({ id, name, summary, cat, uses, glyph, c1, c2, kind, author: 'Keyact Labs', authorActs: 24, input: 'Text Entered', output: 'In-Place Replace', tools: [], ...extra,
+  overview: summary + ' Works on the text in the current field and keeps your original intent, tone and formatting.' });
+const AI = { id: 'ai', name: 'Keyact AI', summary: 'Ask anything right where you type.', cat: 'writing', uses: 0, kind: 'ai', author: 'Keyact Official', authorActs: 1, official: true, input: 'Text Entered', output: 'In-Place Replace', tools: [],
+  overview: 'Write a question or a request in the current chat and trigger Keyact AI. It looks things up and puts the answer straight into the text field — no app switching, no copy and paste.' };
+const ACTS = [
+  A('translate', 'Translate Anything', 'Detects the source language and translates into the one you pick.', 'writing', 11800, '文', '#9BD3FF', '#4C7DFF', 'translate'),
+  A('restyle', 'Restyle Text', 'Rewrites any text in the style you choose.', 'writing', 9900, '✎', '#FFD6A5', '#B28DFF', 'restyle'),
+  A('polish', 'Polish Grammar', 'Fixes grammar, spelling and punctuation.', 'writing', 8700, '✓', '#C9E7FF', '#8FB8FF', 'polish'),
+  A('native', 'Sound Natural', 'Turns stiff or literal text into how a native speaker would say it.', 'writing', 10300, '❝', '#B8F2C8', '#5CC98A', 'native', { author: 'Mira Notes', authorActs: 11 }),
+  A('post', 'Draft a Post', 'Crafts a punchy, authentic short social post.', 'writing', 5500, '✍', '#FFC2C2', '#5C8DFF', 'post'),
+  A('prompt', 'Sharpen Prompt', 'Refines vague prompts into clear, structured ones.', 'writing', 8200, '≡', '#B6C8FF', '#3E5BD6', 'prompt'),
+  A('decode', 'Decode Any Language', 'Explains what a message in another language means.', 'understand', 8000, 'A', '#A7F3E8', '#4CB8D9', 'decode'),
+  A('explain', 'Explain Simply', 'Explains complex text in plain words.', 'understand', 8300, '💡', '#D3F8B5', '#5CC9A0', 'explain'),
+  A('keypoints', 'Key Points', 'Pulls out what matters from long text.', 'understand', 9700, '•', '#FFB4A2', '#E5484D', 'keypoints'),
+  A('warm', 'Warm Reply', 'Drafts a friendly, human-sounding reply.', 'reply', 6600, '☺', '#C5D9FF', '#7C9CFF', 'warm'),
+  A('charm', 'Charm Reply', 'Suggests a playful, charming reply.', 'reply', 8500, '♥', '#FFB3C1', '#FF5C7A', 'charm'),
+  A('office', 'Office Reply', 'Turns a quick note into a professional reply.', 'reply', 6000, '▣', '#FFE7A3', '#F0B429', 'office'),
+  A('meet', 'Instant Meet Link', 'Creates a video meeting link and drops it in the chat.', 'work', 5500, '▶', '#B5E3FF', '#4C9BFF', 'meet', { output: 'Append After', tools: ['Calendar'] }),
+  A('buddy', 'Language Buddy', 'Corrects your sentence and explains the fix.', 'work', 7300, '🎓', '#FFD1B3', '#E2725B', 'buddy'),
+  A('notes', 'Send to Notes', 'Saves the current text to your notes workspace.', 'work', 6200, '⇣', '#C8D7FF', '#5C7CFA', 'notes', { output: 'Copy to Clipboard', tools: ['Notes'] }),
+  A('emojify', 'Emojify', 'Adds fitting emoji to your text.', 'fun', 6100, '☻', '#FFF0A8', '#F5B700', 'emojify'),
+  A('lyrics', 'Song Lyrics', 'Turns your text into short song lyrics.', 'fun', 9600, '♪', '#E0E4EA', '#8A94A6', 'lyrics'),
+  A('luck', 'Daily Luck', 'A playful fortune for your day.', 'fun', 9700, '☾', '#D6C8FF', '#5B3FD6', 'luck'),
+  A('market', 'Market Pulse', 'Summarizes how the big tech names are doing (demo data).', 'finance', 8700, '▥', '#C9F5C9', '#3DBE6B', 'market'),
+  A('coin', 'Coin Watch', 'Quick snapshot of major coins (demo data).', 'finance', 9600, '₿', '#FFD8A8', '#F08C00', 'coin'),
+  A('stock', 'Stock Brief', 'A short brief on the ticker you type (demo data).', 'finance', 5700, '↗', '#C3FAE8', '#20C997', 'stock'),
+  A('trip', 'Trip Planner', 'Builds a one-day plan for the place you type.', 'travel', 4900, '✈', '#BDE0FE', '#3A86FF', 'trip'),
+  A('eats', 'Local Eats', 'Suggests places to eat nearby (demo data).', 'travel', 4100, '🍴', '#FFD6E0', '#FF6B6B', 'eats'),
+  A('pack', 'Packing List', 'Makes a packing list for your trip.', 'travel', 3800, '🧳', '#E9D8FD', '#9775FA', 'pack'),
+];
+const CATS = ['translate', 'writing', 'understand', 'reply', 'work', 'fun', 'finance', 'travel'];
+const title = c => c[0].toUpperCase() + c.slice(1);
+const byCat = c => c === 'translate' ? ACTS.filter(a => ['translate', 'decode', 'buddy'].includes(a.kind)) : ACTS.filter(a => a.cat === c);
+const findAct = id => id === 'ai' ? AI : ACTS.concat(S.created).find(a => a.id === id);
+const uses = n => n >= 1000 ? (n / 1000).toFixed(1) + 'K uses' : n + ' uses';
+
+function respond(act, input) {
+  const t = input.trim(), l = t.toLowerCase(), cap = s => s ? s[0].toUpperCase() + s.slice(1) : s, dot = s => s && !/[.!?]$/.test(s) ? s + '.' : s;
+  switch (act.kind) {
+    case 'ai':
+      if (l.includes('movie')) return '🎬 New movies to check out\n1. Night Signal (2026)\n2. The Last Orchard\n3. Paper Moons';
+      if (/cinema|theater|nearby/.test(l)) return '📍 Starlight Cinema 12 — 0.8 mi, open until midnight\n📍 Harbor Screens — 1.4 mi';
+      return t ? `Here's a quick answer about “${t}”: the short version is yes — and here's why it matters.` : 'Ask me anything — type a question first.';
+    case 'translate': return '（翻訳）' + t;
+    case 'polish': return dot(cap(t));
+    case 'emojify': return t + ' 🎉✨🙌';
+    case 'meet': return 'Join the video call: https://meet.example.com/abc-defg-hij';
+    case 'keypoints': return t.split(/[.!?]/).map(s => s.trim()).filter(Boolean).slice(0, 3).map(s => '• ' + s).join('\n') || '• Nothing to summarize yet';
+    case 'warm': return 'That sounds great! Thanks for thinking of me 😊';
+    case 'office': return "Thanks for the update. I'll review it and get back to you by end of day.";
+    case 'native': return 'Honestly, ' + dot(t.charAt(0).toLowerCase() + t.slice(1));
+    default: return `${act.name}: ${t || '(no input)'} → done ✓`;
+  }
+}
+
+// ---------- state ----------
+const S = {
+  screen: 'intro', stack: [], sheet: null, tab: 'all', myFilter: 'all', coachGear: true,
+  added: ['ai'], created: [], keys: {}, wheel: [null, null, 'ai', 'emojify', null], credits: 10, history: [],
+  kb: { k: true, cap: false, swipe: true, preview: true, haptics: false, hs: 1, sounds: true, weight: 1, upper: false, auto: true, dot: true, next: true, slide: true, cursor: true, accel: true, inline: true, emoji: true, comma: false },
+  voice: { pol: 2, emoji: false, enh: false },
+  detail: null, cat: null, toastMsg: null,
+  // demo
+  demo: { stage: 'intro', msgs: [], input: '', sel: false, typing: false, hint: null, mode: 'typing', panel: null, act: null, layer: 'abc', shift: false, done: false },
+};
+const SCREENS = [
+  ['Onboarding', [['intro', 'Intro'], ['fullAccess', 'Full Access'], ['ready', 'Keyboard ready'], ['actIntro', 'Keyact AI'], ['demo', 'Hands-on demo']]],
+  ['App', [['home', 'Home · All'], ['homeMy', 'Home · My'], ['detail', 'Act detail'], ['category', 'Category list'], ['agent', 'Build an Act']]],
+  ['Settings', [['settings', 'Settings'], ['kbSettings', 'Keyboard'], ['voiceSettings', 'Voice'], ['wheelSettings', 'Wheel'], ['phoneMic', 'Phone Mic (Pro)'], ['paywall', 'Paywall']]],
+];
+
+const phone = document.getElementById('phone');
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+// ---------- small renderers ----------
+const actIcon = (a, s = 48) => a.id === 'ai' ? orb(s) : `<span class="act-icon" style="width:${s}px;height:${s}px;background:linear-gradient(135deg,${a.c1},${a.c2});font-size:${Math.round(s * .42)}px">${esc(a.glyph)}</span>`;
+const orb = (s, cls = '') => `<span class="orb ${cls}" style="width:${s}px;height:${s}px;font-size:${s * .4}px" aria-hidden="true"></span>`;
+const brand = (s = 40) => { const d = s * .46; return `<span class="brand" style="gap:${s * .08}px" aria-hidden="true">${[['K', 'o'], ['e', 'f'], ['y', 'f'], ['a', 'o']].map(([l, k]) => `<i class="${k}" style="width:${d}px;height:${d}px;font-size:${d * .55}px">${l}</i>`).join('')}</span>`; };
+const circle = (icon, action, hl = false, label = icon) => `<button class="circle-btn ${hl ? 'hl' : ''}" data-a="${action}" aria-label="${label}">${ic(icon)}</button>`;
+const toggle = (key, on, green = false) => `<button class="toggle ${green ? 'green' : ''}" role="switch" aria-checked="${on}" data-a="tog" data-k="${key}"></button>`;
+const srow = (icon, t, sub, right, action = '', noicon = false) => `<${action ? 'button' : 'div'} class="srow ${noicon ? 'noicon' : ''}" ${action ? `data-a="${action}"` : ''}>${icon ? `<span class="ic">${ic(icon)}</span>` : ''}<span class="grow"><div class="tt">${t}</div>${sub ? `<div class="st">${sub}</div>` : ''}</span>${right ?? ''}</${action ? 'button' : 'div'}>`;
+const chev = v => `<span class="chev">${v ? `<span>${v}</span>` : ''}${ic('chev', 15)}</span>`;
+const steps = (key, labels, val) => `<div class="steps"><input type="range" min="0" max="${labels.length - 1}" step="1" value="${val}" data-a="range" data-k="${key}" aria-label="${key}"><div class="lbls">${labels.map((l, i) => i === val ? `<b>${l}</b>` : `<span>${l}</span>`).join('')}</div></div>`;
+const navh = (t, back = 'back', right = '') => `<div class="navh">${circle(back === 'close' ? 'x' : 'back', back, false, back)}<h2>${t}</h2><span>${right}</span></div>`;
+const actRow = (a, tail) => `<button class="act-row" data-a="open" data-id="${a.id}">${actIcon(a)}<span class="grow"><div class="nm">${esc(a.name)}</div><div class="t-cap">${a.uses ? uses(a.uses) : esc(a.summary)}</div></span>${tail ?? `<span class="add ${S.added.includes(a.id) ? 'on' : ''}" role="button" data-a="add" data-id="${a.id}">${S.added.includes(a.id) ? 'Added' : 'Add'}</span>`}</button>`;
+const status = (dark = false) => `<div class="status"><span>9:41</span><span class="island"></span><span class="r">${ic('wifi', 0)}<span>•••</span><span class="batt">89</span></span></div>`;
+
+// ---------- screens ----------
+const V = {};
+V.intro = () => `<div class="screen bg-grad fadein"><div class="col" style="align-items:center;padding-top:40px;gap:20px">${brand(44)}<h1 class="h-display">Your keys,<br>now with actions</h1></div>
+  <div class="px" style="margin-top:28px">${introDemo()}</div><div style="flex:1"></div>
+  <div class="px" style="padding-bottom:34px"><button class="primary" data-a="go" data-s="fullAccess">Enable Keyact Keyboard</button></div></div>`;
+let introBeat = 0;
+const BEATS = [['', 1, null, null], ['', 1, 'Instant Meet Link', 1], ['see you soon', 0], ['see you soon', 1, 'Emojify', 3], ['see you soon 🎉✨🙌', 0], ['see you soon 🎉✨🙌', 1, 'Keyact AI', 2], ['Welcome to Keyact', 0]];
+function introDemo() {
+  const [t, w, lbl, sel] = BEATS[introBeat];
+  const slots = [ACTS[12], ACTS[0], AI, ACTS[15], ACTS[2]];
+  const pts = [166, 128, 90, 52, 14].map(d => [189 + 92 * Math.cos(d * Math.PI / 180), 164 - 92 * Math.sin(d * Math.PI / 180)]);
+  return `<div style="border-radius:18px;overflow:hidden" aria-label="Keyboard demo"><div class="row" style="height:40px;background:#fff;color:#000;padding:0 10px;font:14px var(--font-sys)"><span class="grow" style="${w ? '' : 'background:rgba(61,123,247,.18)'}">${esc(t) || '&nbsp;'}</span><span style="width:24px;height:24px;border-radius:50%;background:#000;color:#fff;display:grid;place-items:center">${ic('up', 14)}</span></div>
+  <div style="height:170px;background:#E1E2E7;position:relative;color:#000"><div style="padding:8px;opacity:${w ? .25 : 1};transition:opacity .25s"><div class="row" style="gap:10px;font-size:10px;font-weight:500;margin-bottom:8px">${ic('pencil', 10)}Type <span style="color:#888">✦ Act</span><span class="grow"></span>${ic('clip', 10)} ${ic('mic', 10)}Voice</div>
+  ${['qwertyuiop', 'asdfghjkl', 'zxcvbnm'].map(r => `<div class="row" style="gap:5px;justify-content:center;margin-bottom:8px">${[...r].map(c => `<span style="width:26px;height:28px;border-radius:5px;background:#fff;display:grid;place-items:center;font:13px var(--font-sys)">${c}</span>`).join('')}</div>`).join('')}</div>
+  ${w ? `<div class="fadein" style="position:absolute;inset:0"><div style="position:absolute;left:${189 - 120}px;top:${164 - 120}px;width:240px;height:240px;border-radius:50%;background:radial-gradient(rgba(255,255,255,.9),rgba(191,210,255,.5) 50%,transparent 70%)"></div><div style="position:absolute;top:8px;left:0;right:0;text-align:center;font-size:11px;${lbl ? 'font-weight:600' : 'color:#777'}">${lbl || 'Release to cancel'}</div>${slots.map((a, i) => `<span style="position:absolute;left:${pts[i][0]}px;top:${pts[i][1]}px;transform:translate(-50%,-50%) scale(${sel === i ? 1.3 : 1});transition:transform .2s">${actIcon(a, i === 2 ? 34 : 30)}</span>`).join('')}</div>` : ''}</div></div>`;
+}
+V.fullAccess = () => `<div class="screen bg-grad fadein"><div class="px" style="padding-top:8px">${circle('x', 'go', false, 'Close').replace('data-a="go"', 'data-a="go" data-s="intro"')}</div>
+  <h1 class="h-display" style="margin-top:8px">Enable Full Access</h1><p class="t-cap" style="text-align:center;margin:6px 24px 0">Typing already works. Full Access turns on the AI features.</p>
+  <div class="px" style="margin-top:24px">${S.guide ? settingsGuide() : `<div class="card" style="padding:14px;background:#1A2330"><div class="card-alt" style="background:#1E2A3A;padding:18px;text-align:center;border-radius:16px"><div class="h-title">Your data <span style="color:var(--accent)">stays yours.</span></div><p class="t-cap" style="margin:8px 0 0">Full Access is only used to run AI features. Text or voice is processed only when you trigger one.</p></div><div class="row" style="padding:14px 14px 0;justify-content:space-between"><span style="font-weight:500">Allow Full Access</span><span class="toggle green" aria-checked="true"></span></div></div>`}</div>
+  <div style="flex:1"></div><p class="t-cap" style="text-align:center;text-decoration:underline;margin:0 0 12px">What does Full Access mean?</p>
+  <div class="px" style="padding-bottom:34px"><button class="primary" data-a="enableFA">${S.guide ? "I've turned it on" : 'Enable Full Access'}</button></div></div>`;
+const settingsGuide = () => `<div class="fadein" style="background:#F2F2F7;border-radius:22px;color:#000;font-family:var(--font-sys);position:relative;transform-origin:top right;animation:up .4s"><div class="row" style="padding:14px;justify-content:space-between;font-size:15px"><span style="color:#007AFF">‹ Apps</span><b>Keyact</b><span style="width:50px"></span></div><div style="font-size:11px;color:#888;padding:6px 16px 0">ALLOW KEYACT TO ACCESS</div><div style="margin:8px 12px 12px;background:#fff;border-radius:10px">${['Siri', 'Search', 'Cellular Data', 'Keyboards'].map((t, i) => `<div class="row" style="padding:11px 14px;font-size:15px;${i === 3 ? 'background:rgba(0,0,0,.08)' : ''};${i ? 'border-top:1px solid #eee' : ''}"><span class="grow">${t}</span><span style="color:#bbb">›</span></div>`).join('')}</div><span class="hand" style="position:absolute;right:40px;bottom:8px">☝</span></div>`;
+V.ready = () => `<div class="screen bg-grad fadein"><div class="col" style="align-items:center;padding-top:60px;gap:20px"><span style="width:56px;height:56px;border-radius:50%;background:var(--success);display:grid;place-items:center;color:#fff">${ic('check', 28, 'stroke-width="3"')}</span><h1 class="h-display">Keyact keyboard is ready</h1></div>
+  <div class="px" style="margin-top:28px"><div class="sgroup">${[['globe', '90+ languages'], ['mic', 'Free voice dictation'], ['sparkles', 'Thousands of community Acts']].map(([i, t]) => `<div class="srow"><span class="ic" style="color:var(--accent)">${ic(i)}</span><span class="grow" style="font-size:15px;font-weight:500">${t}</span></div>`).join('')}</div></div>
+  <div style="flex:1"></div><p class="t-cap" style="text-align:center;margin:0 0 14px">Keyboard not showing up? <span style="color:var(--accent)">See how</span></p>
+  <div class="px" style="padding-bottom:34px"><button class="primary" data-a="go" data-s="actIntro">Explore Keyact</button></div></div>`;
+const authorCard = (a, follow = false) => `<div class="card-alt row" style="padding:14px;gap:12px">${a.official ? `<span style="width:48px;height:48px;border-radius:50%;background:#000;display:grid;place-items:center">${brand(36)}</span>` : `<span style="width:48px;height:48px;border-radius:50%;background:var(--raised);display:grid;place-items:center;color:var(--text-2)">${ic('person', 22)}</span>`}<span class="grow"><div style="font-size:17px;font-weight:500">${esc(a.author)} ${a.official ? '<span style="color:var(--accent)">✔︎</span>' : ''}</div><div class="t-cap">${a.authorActs} Acts</div></span>${follow ? `<button style="height:32px;padding:0 16px;border-radius:16px;background:var(--cta-bg);color:var(--cta-fg);font-size:13px;font-weight:600">Follow</button>` : ''}</div>`;
+const overview = t => `<div class="card-alt" style="padding:14px"><div class="muted" style="font-size:15px;font-weight:500;margin-bottom:10px">Act Overview</div><div class="t-body" style="padding:14px;border-radius:16px;box-shadow:inset 0 0 0 1px var(--hair)">${esc(t)}</div></div>`;
+V.actIntro = () => `<div class="screen bg-grad fadein"><div class="px">${circle('back', 'go', false, 'Back').replace('data-a="go"', 'data-a="go" data-s="ready"')}</div><div class="col" style="align-items:center;gap:14px;margin-top:8px">${orb(84, 'pulse')}<h2 class="h-title">Keyact AI</h2></div>
+  <div class="px col" style="gap:12px;margin-top:20px">${authorCard(AI)}${overview(AI.overview)}</div><div style="flex:1"></div>
+  <div class="px" style="padding-bottom:34px"><button class="primary" data-a="go" data-s="demo">Try It</button></div></div>`;
+
+// ---------- demo chat + keyboard ----------
+V.demo = () => {
+  const d = S.demo;
+  return `<div class="screen chat fadein"><div class="col" style="align-items:center;gap:4px;padding:6px 0;position:relative"><span style="width:52px;height:52px;border-radius:50%;background:linear-gradient(#8EC5FC,#6A7BFF);display:grid;place-items:center;font-size:22px;font-weight:600">S</span><span style="font:600 14px var(--font-sys);background:var(--bubble-in);padding:5px 12px;border-radius:14px">Sam ›</span><span class="circle-btn" style="position:absolute;right:14px;top:6px;background:var(--bubble-in)">${ic('video', 18)}</span></div>
+  <div class="scroll col" id="msgs" style="gap:10px;padding:10px 14px">${d.msgs.map(m => `<div class="bubble ${m.out ? 'out' : 'in'}">${esc(m.t)}</div>`).join('')}${d.typing ? '<div class="bubble in"><span class="dots"><i></i><i></i><i></i></span></div>' : ''}</div>
+  <div class="composer"><span class="plus">+</span><div class="field"><span class="tx ${d.sel ? 'sel' : ''}" style="${d.input ? '' : 'color:var(--text-3)'}">${d.input ? esc(d.input) : 'iMessage'}</span><button class="send" data-a="send" ${d.input ? '' : 'disabled'} aria-label="Send">${ic('up', 15, 'stroke-width="3"')}</button></div></div>
+  ${keyboard()}${d.done ? tryApps() : ''}</div>`;
+};
+function keyboard() {
+  const d = S.demo, inPanel = d.mode === 'panel';
+  const bar = inPanel
+    ? `<span>${ic('sparkles', 15)}</span><span style="font-size:17px;font-weight:500" class="grow">${esc(d.act?.name || 'Keyact')}</span><button class="kb-pill" data-a="kbclose" aria-label="Close">${ic('x', 14)}</button>`
+    : `<div class="ta"><button aria-pressed="${d.mode !== 'acts'}" data-a="kbtype">${ic('pencil', 11)}Type</button><button aria-pressed="${d.mode === 'acts'}" data-a="kbacts">${ic('sparkles', 11)}Act</button>${d.hint === 'acts' ? `<div style="position:absolute;left:50px;top:30px;z-index:20;display:flex;flex-direction:column;gap:6px;align-items:flex-start;pointer-events:none"><span class="hand">☝</span><span class="coach">Run your Acts from here</span></div>` : ''}</div>
+       <span class="grow"></span><span class="t-micro" style="color:var(--text-3)">Demo Keyboard</span><span class="grow"></span>
+       ${d.mode === 'acts' ? `<button class="kb-pill" data-a="kbtype" aria-label="Close">${ic('x', 14)}</button>` : `<button class="kb-pill" aria-label="Clips">${ic('clip', 14)}</button><button class="kb-pill">${ic('mic', 12)}Voice</button>`}`;
+  let body;
+  if (inPanel) {
+    const p = d.panel;
+    body = `<div class="panel"><div class="box">${p === 'thinking' ? '<span class="muted">Thinking</span> <span class="dots"><i></i><i></i><i></i></span>' : esc(p)}</div>${p !== 'thinking' && d.act?.output !== 'In-Place Replace' ? '<div class="btns"><button data-a="apply" data-o="replace">Replace</button><button data-a="apply" data-o="copy">Copy</button><button data-a="apply" data-o="append">Append</button></div>' : ''}</div>`;
+  } else if (d.mode === 'acts') {
+    body = `<div class="acts-grid">${S.added.map(findAct).filter(Boolean).map(a => `<button data-a="runact" data-id="${a.id}">${actIcon(a, 30)}<span>${esc(a.name)}</span></button>`).join('')}</div>`;
+  } else {
+    const up = d.shift;
+    const rows = d.layer === 'abc' ? ['qwertyuiop', 'asdfghjkl', 'zxcvbnm'] : ['1234567890', '-/:;()$&@"', ".,?!'"];
+    body = `<div class="keys" id="keys">${rows.slice(0, 2).map((r, ri) => `<div class="krow" ${ri === 1 && d.layer === 'abc' ? 'style="padding:0 18px"' : ''}>${[...r].map(c => `<div class="key" data-ch="${esc(c)}">${up ? c.toUpperCase() : c}</div>`).join('')}</div>`).join('')}
+      <div class="krow"><div class="key sp" data-k="shift" style="flex:1.35">${ic(up ? 'shiftf' : 'shift', 18)}</div><div class="row" style="flex:7.6;gap:6px">${[...rows[2]].map(c => `<div class="key" data-ch="${esc(c)}">${up ? c.toUpperCase() : c}</div>`).join('')}</div><div class="key sp" data-k="del" style="flex:1.35">${ic('del', 18)}</div></div>
+      <div class="krow"><div class="key sp" data-k="layer" style="flex:1.35">${d.layer === 'abc' ? '123' : 'ABC'}</div><div class="key sp" data-k="emoji" style="flex:1.1">${ic('smile', 18)}</div><div class="key space ${d.hint === 'space' ? 'hl' : ''}" id="space">space</div><div class="key sp" data-k="ret" style="flex:1.9">${ic('ret', 18)}</div></div></div>
+      <div class="wheel" id="wheel" hidden></div>
+      ${d.hint === 'space' ? '<div style="position:absolute;bottom:-4px;left:0;right:0;display:flex;flex-direction:column;align-items:center;gap:4px;pointer-events:none"><span class="coach">Hold the space bar</span><span class="hand">☝</span></div>' : ''}`;
+  }
+  return `<div class="kb" id="kb"><div class="kb-bar">${bar}</div><div class="kb-body">${body}</div></div>`;
+}
+const tryApps = () => `<div class="sheet-wrap fadein" style="align-items:center;justify-content:center;backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);background:rgba(0,0,0,.35)"><div class="card col" style="margin:0 36px;padding:22px;gap:18px;align-items:center;border-radius:28px">${orb(56)}<div class="h-title" style="text-align:center">Now try it in your<br>favorite apps</div>
+  <div class="col" style="gap:8px;width:100%">${[['Messages', '#34C759'], ['WhatsApp', '#25D366'], ['Telegram', '#2AABEE']].map(([n, c]) => `<div class="card-alt row" style="height:52px;padding:0 14px;gap:12px;border-radius:16px"><span style="width:32px;height:32px;border-radius:8px;background:${c};display:grid;place-items:center">${ic('chat', 16)}</span><span class="grow" style="font-weight:500">${n}</span><span style="color:var(--accent)">${ic('arrowur', 18)}</span></div>`).join('')}</div>
+  <button style="color:var(--accent);font-weight:500" data-a="finishDemo">Finish demo</button></div></div>`;
+
+// demo logic
+const wait = ms => new Promise(r => setTimeout(r, ms));
+async function startDemo() {
+  const d = S.demo; if (d.stage !== 'intro') return;
+  d.stage = 'starting'; d.typing = true; render(); await wait(900);
+  d.typing = false; d.msgs.push({ t: 'Want to catch a movie this weekend? Anything good out? 🍿' }); render(); await wait(500);
+  d.input = 'Recent movies'; d.sel = true; d.hint = 'space'; d.stage = 'first'; render();
+}
+async function runAct(act) {
+  const d = S.demo; const input = d.input;
+  d.act = act; d.mode = 'panel'; d.panel = 'thinking'; d.hint = null; render();
+  await wait(1500); const out = respond(act, input); d.panel = out; render();
+  S.history.unshift({ name: act.name, input, out });
+  if (act.output === 'In-Place Replace') { await wait(700); applyResult('replace'); }
+}
+function applyResult(kind) {
+  const d = S.demo; const out = d.panel; if (!out || out === 'thinking') return;
+  if (kind === 'replace') d.input = out; else if (kind === 'append') d.input = d.input + '\n' + out; else toast('Copied');
+  d.sel = false; d.mode = 'typing'; d.act = null;
+  if (d.stage === 'first') d.stage = 'firstReady'; else if (d.stage === 'second') d.stage = 'secondReady';
+  render();
+}
+async function send() {
+  const d = S.demo; const t = d.input.trim(); if (!t) return;
+  d.msgs.push({ t, out: true }); d.input = ''; d.sel = false; d.hint = null; const st = d.stage; render(); scrollMsgs();
+  await wait(600); d.typing = true; render(); scrollMsgs(); await wait(1100); d.typing = false;
+  if (['first', 'firstReady', 'starting', 'intro'].includes(st)) {
+    d.msgs.push({ t: "Ooh, sounds fun! I'll be downtown — any theaters around there?" }); render(); scrollMsgs(); await wait(500);
+    d.input = 'Nearby cinemas'; d.sel = true; d.hint = 'acts'; d.stage = 'second'; render();
+  } else {
+    d.msgs.push({ t: "Perfect! Popcorn's on me 🍿" }); d.stage = 'done'; render(); scrollMsgs(); await wait(900); d.done = true; render();
+  }
+}
+const scrollMsgs = () => { const m = phone.querySelector('#msgs'); if (m) m.scrollTop = m.scrollHeight; };
+function typeChar(c) {
+  const d = S.demo; const ch = d.shift ? c.toUpperCase() : c;
+  if (d.sel) { d.input = ch; d.sel = false; } else d.input += ch;
+  d.shift = false; render();
+}
+
+// space bar: tap / long-press wheel
+function bindKeyboard() {
+  const keys = phone.querySelector('#keys'); if (!keys) return;
+  keys.addEventListener('pointerdown', e => {
+    const k = e.target.closest('.key'); if (!k) return;
+    if (k.id === 'space') return spaceDown(e, k);
+    k.classList.add('down');
+    if (k.dataset.ch && S.kb.preview && S.demo.layer === 'abc') k.insertAdjacentHTML('beforeend', `<span class="pv">${k.textContent}</span>`);
+    const up = () => { k.classList.remove('down'); k.querySelector('.pv')?.remove(); keyAction(k); };
+    k.addEventListener('pointerup', up, { once: true });
+    k.addEventListener('pointerleave', () => { k.classList.remove('down'); k.querySelector('.pv')?.remove(); }, { once: true });
+  });
+}
+function keyAction(k) {
+  const d = S.demo;
+  if (k.dataset.ch) return typeChar(k.dataset.ch);
+  switch (k.dataset.k) {
+    case 'shift': d.shift = !d.shift; break;
+    case 'del': if (d.sel) { d.input = ''; d.sel = false; } else d.input = d.input.slice(0, -1); break;
+    case 'layer': d.layer = d.layer === 'abc' ? '123' : 'abc'; break;
+    case 'emoji': d.input += '🙂'; break;
+    case 'ret': d.input += '\n'; break;
+  }
+  render();
+}
+function wheelPoints(w, h) { const c = [w / 2, h - 14], r = Math.min(w * .36, h * .78); return [166, 128, 90, 52, 14].map(a => [c[0] + r * Math.cos(a * Math.PI / 180), c[1] - r * Math.sin(a * Math.PI / 180)]); }
+function spaceDown(e, el) {
+  const body = phone.querySelector('.kb-body'), wheel = phone.querySelector('#wheel'), keys = phone.querySelector('#keys');
+  const rect = body.getBoundingClientRect(); const scale = rect.width / body.offsetWidth || 1;
+  el.setPointerCapture(e.pointerId); el.classList.add('down');
+  let open = false, sel = null; const sx = e.clientX;
+  const pts = wheelPoints(body.offsetWidth, body.offsetHeight);
+  const drawWheel = () => {
+    const c = [body.offsetWidth / 2, body.offsetHeight - 14], r = Math.hypot(pts[2][0] - c[0], pts[2][1] - c[1]);
+    const item = sel != null ? findAct(S.wheel[sel]) : null;
+    wheel.innerHTML = `<div class="halo" style="left:${c[0] - r * 1.35}px;top:${c[1] - r * 1.35}px;width:${r * 2.7}px;height:${r * 2.7}px"></div><div class="ring" style="left:${c[0] - r}px;top:${c[1] - r}px;width:${r * 2}px;height:${r * 2}px"></div>
+      <div class="lbl ${item ? 'on' : ''}">${item ? esc(item.name) : 'Release to cancel'}</div>
+      ${pts.map((p, i) => { const a = findAct(S.wheel[i]); return `<div class="slot ${sel === i ? 'sel' : ''}" style="left:${p[0]}px;top:${p[1]}px">${a ? actIcon(a, i === 2 ? 46 : 44) : '<span class="plus">+</span>'}</div>`; }).join('')}`;
+  };
+  const timer = setTimeout(() => { open = true; S.demo.hint = null; phone.querySelectorAll('.coach,.hand').forEach(n => { if (n.closest('.kb-body')) n.parentElement.remove(); }); el.classList.remove('hl'); keys.classList.add('dim'); wheel.hidden = false; drawWheel(); }, 350);
+  const move = ev => {
+    if (!open) { if (Math.abs(ev.clientX - sx) > 12) clearTimeout(timer); return; }
+    const x = (ev.clientX - rect.left) / scale, y = (ev.clientY - rect.top) / scale;
+    let best = null, bd = 56; pts.forEach((p, i) => { const dd = Math.hypot(p[0] - x, p[1] - y); if (dd < bd && S.wheel[i]) { bd = dd; best = i; } });
+    if (best !== sel) { sel = best; drawWheel(); }
+  };
+  const up = () => {
+    clearTimeout(timer); el.classList.remove('down'); el.removeEventListener('pointermove', move);
+    if (open) { wheel.hidden = true; keys.classList.remove('dim'); const a = sel != null ? findAct(S.wheel[sel]) : null; if (a) runAct(a); else render(); }
+    else { const d = S.demo; if (d.sel) { d.input = ' '; d.sel = false; } else d.input += ' '; render(); }
+  };
+  el.addEventListener('pointermove', move);
+  el.addEventListener('pointerup', up, { once: true });
+  el.addEventListener('pointercancel', up, { once: true });
+}
+
+// ---------- home ----------
+V.home = () => {
+  const my = S.tab === 'my';
+  return `<div class="screen bg-grad fadein"><div class="row px" style="justify-content:space-between;padding-top:4px;padding-bottom:8px;position:relative;z-index:6">
+    <div style="position:relative">${circle('gear', 'openSettings', S.coachGear, 'Settings')}${S.coachGear ? '<div style="position:absolute;top:50px;left:0;display:flex;flex-direction:column;gap:4px;align-items:flex-start;pointer-events:none"><span class="hand" style="margin-left:10px">☝</span><span class="coach">More settings here</span></div>' : ''}</div>
+    <div class="seg"><span class="thumb" style="transform:translateX(${my ? '100%' : '0'})"></span><button aria-pressed="${!my}" data-a="tab" data-t="all">All</button><button aria-pressed="${my}" data-a="tab" data-t="my">My</button></div>
+    ${circle('search', 'noop', false, 'Search')}</div>
+    <div class="scroll" style="padding-bottom:100px">${my ? myList() : allList()}</div>
+    <button class="composer-bar" data-a="go" data-s="agent">${ic('sparkles', 18)}<span style="color:var(--text-2)">Describe an Act to build...</span></button></div>`;
+};
+function allList() {
+  return `<div class="px"><button class="hero" data-a="open" data-id="ai"><div class="kbill"><div class="r" style="font-size:10px;gap:14px;font-weight:500">✎ Type <span style="opacity:.5">✦ Act</span><span style="width:120px"></span>${ic('clip', 10)} ${ic('mic', 10)} Voice</div><div class="r">${[...'qwertyuiop'].map(c => `<i>${c}</i>`).join('')}</div><div class="r b">${'<i></i>'.repeat(9)}</div></div>
+    <div class="center">${orb(72)}<b>Keyact AI</b></div><span style="position:absolute;left:14px;top:14px;opacity:.6;filter:invert(1)">${brand(26)}</span></button>
+    <button class="card row" style="margin-top:16px;width:100%;height:72px;border-radius:20px;background:#1A2834;padding-right:14px;gap:12px;text-align:left" data-a="toast" data-m="Tips: hold space · swipe space · Act tab · assign keys · Voice">
+      <span style="width:60px;display:grid;place-items:center;font-size:28px">💡</span><span class="grow"><div class="row" style="gap:6px"><span style="font-size:17px;font-weight:500">Keyact 101</span><span class="badge new">New</span></div><div class="t-cap">Tips for using the Keyact keyboard</div></span><span style="width:34px;height:34px;border-radius:50%;background:#fff;color:#11161D;display:grid;place-items:center">${ic('play', 13)}</span></button></div>
+    <div class="hsec" style="margin-top:20px">${CATS.map(c => `<button class="chip" data-a="jump" data-c="${c}">${title(c)}</button>`).join('')}</div>
+    ${CATS.filter(c => c !== 'translate').map(c => { const acts = byCat(c), pages = []; for (let i = 0; i < acts.length; i += 3) pages.push(acts.slice(i, i + 3));
+      return `<section id="sec-${c}" style="margin-top:28px"><div class="row" style="justify-content:space-between;padding:0 18px 12px"><h3 class="h-title">${title(c)}</h3><button class="muted row" style="gap:4px;font-size:15px" data-a="cat" data-c="${c}">More ${ic('chev', 14)}</button></div>
+      <div class="hsec">${pages.map(p => `<div class="card">${p.map(a => actRow(a)).join('')}</div>`).join('')}</div></section>`; }).join('')}`;
+}
+function myList() {
+  const f = S.myFilter;
+  let list = f === 'created' ? S.created : f === 'added' ? S.added.map(findAct).filter(a => a && !S.created.includes(a)) : S.added.map(findAct).filter(Boolean);
+  return `<div class="row" style="padding:0 16px 12px;justify-content:space-between"><div class="subtabs">${['all', 'added', 'created'].map(x => `<button aria-pressed="${f === x}" data-a="myf" data-f="${x}">${title(x)}</button>`).join('')}</div><span class="muted">⇅</span></div>
+    ${list.length ? `<div class="px"><div class="card" style="padding:0 16px">${list.map(a => actRow(a, `${Object.entries(S.keys).find(([, v]) => v === a.id) ? `<span style="width:26px;height:26px;border-radius:6px;background:var(--raised);display:grid;place-items:center;font-size:13px;font-weight:600">${Object.entries(S.keys).find(([, v]) => v === a.id)[0].toUpperCase()}</span>` : ''}<span class="chev">${ic('chev', 15)}</span>`)).join('')}</div></div>`
+      : `<div class="col" style="align-items:center;gap:10px;padding-top:120px;color:var(--text-2)"><span style="font-size:34px;color:var(--text-3)">✦</span>${f === 'created' ? 'Acts you build show up here' : 'Add Acts from the All tab'}</div>`}`;
+}
+V.category = () => { const c = S.cat || 'writing', acts = byCat(c);
+  return `<div class="screen bg-grad fadein">${navh(title(c))}<div class="scroll pxs">${acts.map(a => `<button class="act-row" style="height:auto;padding:12px 0" data-a="open" data-id="${a.id}">${actIcon(a)}<span class="grow"><div class="nm">${esc(a.name)}</div><div class="t-cap" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(a.summary)}</div></span></button>`).join('')}</div></div>`; };
+V.detail = () => { const a = findAct(S.detail || 'native'); const added = S.added.includes(a.id); const key = Object.entries(S.keys).find(([, v]) => v === a.id)?.[0];
+  return `<div class="screen bg-grad fadein">${navh('', 'back', `<button class="circle-btn" data-a="assign" aria-label="Assign to key">${ic('more')}</button>`)}
+  ${S.loading ? `<div class="grow" style="display:grid;place-items:center">${orb(70, 'gray pulse')}</div>` : `<div class="scroll px col fadein" style="gap:12px"><h2 class="h-title" style="text-align:center;margin:4px 0 8px">${esc(a.name)}</h2>${authorCard(a, !a.official)}${overview(a.overview)}
+    <div class="card-alt" style="padding:14px"><div class="muted" style="font-size:15px;font-weight:500;margin-bottom:12px">Input &amp; Output</div>${[[a.input, 'Input'], [a.output, 'Output']].map(([t, tag]) => `<div class="row" style="gap:12px;margin-top:8px"><span style="width:36px;height:36px;border-radius:8px;box-shadow:inset 0 0 0 1px var(--hair);display:grid;place-items:center">${ic(tag === 'Input' ? 'keyboard' : 'shuffle', 16)}</span><span>${t}</span><span class="t-micro muted">${tag}</span></div>`).join('')}</div>
+    ${key ? `<p class="t-cap" style="text-align:center">Long-press “${key.toUpperCase()}” on the keyboard to run this Act</p>` : ''}</div>`}
+  <div class="px col" style="gap:10px;padding-bottom:34px;padding-top:10px"><div class="row" style="gap:10px"><button class="secondary" data-a="go" data-s="agent">${ic('shuffle', 16)}Remix</button><button class="secondary" data-a="add" data-id="${a.id}" ${a.id === 'ai' ? 'disabled' : ''}>${ic(added ? 'check' : 'plusc', 16)}${added ? 'Added' : 'Add'}</button></div><button class="primary" data-a="tryit">Try It</button></div>
+  ${S.sheet === 'tryit' ? tryItSheet(a) : ''}${S.sheet === 'assign' ? assignSheet(a) : ''}</div>`; };
+const tryItSheet = a => `<div class="sheet-wrap"><div class="sheet"><div class="navh"><button data-a="closeSheet" style="color:var(--accent)">Close</button><h2>${esc(a.name)}</h2><span></span></div><div class="pxs col" style="gap:16px"><div class="muted" style="font-weight:500">Input</div>
+  <textarea id="tryin" rows="4" class="card-alt" style="padding:14px;border:0;resize:none;border-radius:16px" aria-label="Input">${esc(S.tryIn ?? (a.kind === 'ai' ? 'Recent movies' : 'i think we should meet tomorrow to talk about the plan'))}</textarea>
+  <button class="primary" data-a="runtry">${S.tryRunning ? '<span class="dots"><i></i><i></i><i></i></span>' : '✦ Run'}</button>
+  ${S.tryOut ? `<div class="muted fadein" style="font-weight:500">Result</div><div class="card-alt fadein t-body" style="padding:14px;border-radius:16px;white-space:pre-wrap">${esc(S.tryOut)}</div>` : ''}
+  ${S.credits <= 0 ? `<p class="t-cap" style="color:var(--danger)">You've used today's 10 AI credits. They reset daily.</p>` : ''}<p class="t-cap" style="text-align:center;color:var(--text-3)">${S.credits} / 10 AI credits left today</p></div></div></div>`;
+const assignSheet = a => { const cur = Object.entries(S.keys).find(([, v]) => v === a.id)?.[0];
+  return `<div class="sheet-wrap" data-a="closeSheet"><div class="sheet half" data-stop="1"><div style="width:36px;height:5px;border-radius:3px;background:var(--text-3);margin:8px auto 0"></div><div class="col" style="align-items:center;gap:10px;padding:18px 16px"><h2 class="h-title">Assign to Key</h2><p class="t-cap" style="text-align:center;margin:0">Long-press the key on the Keyact keyboard to run “${esc(a.name)}”.</p>
+  ${['qwertyuiop', 'asdfghjkl', 'zxcvbnm'].map(r => `<div class="row" style="gap:6px">${[...r].map(c => `<button data-a="setkey" data-key="${c}" style="width:30px;height:40px;border-radius:7px;font-size:18px;font-weight:500;background:${cur === c ? 'var(--cta-bg)' : 'var(--raised)'};color:${cur === c ? 'var(--cta-fg)' : 'var(--text)'}">${c.toUpperCase()}</button>`).join('')}</div>`).join('')}
+  ${cur ? '<button data-a="setkey" data-key="" style="color:var(--danger);font-weight:500;margin-top:6px">Remove assignment</button>' : ''}</div></div></div>`; };
+V.agent = () => `<div class="screen bg-grad fadein">${navh('Build an Act')}<div class="scroll pxs col" style="gap:14px;padding-bottom:20px" id="agentlog">${S.agent?.length ? S.agent.map(m => m.user ? `<div style="align-self:flex-end;max-width:80%;background:var(--cta-bg);color:var(--cta-fg);padding:10px 14px;border-radius:18px">${esc(m.t)}</div>` : `<div class="col" style="gap:10px"><div class="t-body">${esc(m.t)}</div>${m.p ? `<div class="card-alt col" style="padding:14px;gap:10px"><div class="row" style="gap:12px">${actIcon(m.p, 40)}<span><div style="font-weight:500">${esc(m.p.name)}</div><div class="t-cap">Draft plan</div></span></div>${[['Input', m.p.input], ['Instruction', m.p.summary], ['Output', m.p.output]].map(([k, v]) => `<div><div class="t-micro muted">${k}</div><div class="t-body">${esc(v)}</div></div>`).join('')}<div class="row" style="gap:10px"><button class="secondary" data-a="toast" data-m="Test ran: ${esc(m.p.name)} → done ✓">▶ Test</button><button class="secondary" data-a="saveact">${S.created.includes(m.p) ? '✓ Saved' : '✓ Save'}</button></div></div>` : ''}</div>`).join('') + (S.agentThinking ? `<div class="row" style="gap:8px">${orb(24, 'pulse')}<span class="dots"><i></i><i></i><i></i></span></div>` : '')
+  : `<div class="col" style="gap:12px;padding-top:20px">${orb(48)}<h3 class="h-title">What should your Act do?</h3><p class="t-body muted" style="margin:0">Describe it in plain words. I'll propose a plan you can test and save.</p>${['Turn my message into a polite email', 'Summarize copied text in 3 bullets', 'Reply with a meeting link from my calendar'].map(s => `<button class="card row" style="padding:14px;border-radius:16px;text-align:left;gap:8px" data-a="agentsend" data-t="${s}"><span class="grow">${s}</span>${ic('arrowur', 16)}</button>`).join('')}</div>`}</div>
+  <form class="composer-bar" style="position:static;margin:0 12px 30px" data-form="agent"><span>${ic('sparkles', 18)}</span><input id="agentin" class="grow" style="background:none;border:0;outline:none;color:var(--text)" placeholder="Describe an Act to build..." aria-label="Describe an Act"><button class="send" style="background:var(--cta-bg);color:var(--cta-fg);width:32px;height:32px;border-radius:50%;display:grid;place-items:center" aria-label="Send">${ic('up', 14, 'stroke-width="3"')}</button></form></div>`;
+
+// ---------- settings ----------
+V.settings = () => `<div class="screen bg-grad fadein"><div class="navh">${circle('x', 'go', false, 'Close').replace('data-a="go"', 'data-a="go" data-s="home"')}<h2>Settings</h2>${circle('qr', 'go', false, 'Scan').replace('data-a="go"', 'data-a="go" data-s="phoneMic"')}</div>
+  <div class="scroll pxs col" style="gap:22px;padding-bottom:40px">
+  <div class="card col" style="padding:16px;gap:14px;border-radius:20px"><div class="row" style="gap:12px"><span style="width:52px;height:52px;border-radius:50%;background:var(--raised);display:grid;place-items:center;color:var(--text-2)">${ic('person', 22)}</span><span class="grow"><div class="h-title">Sign in</div><div class="t-cap">Sign in to sync your Acts</div></span>${chev()}</div>
+    <div class="row" style="gap:4px;align-items:baseline"><b style="font-size:22px;font-weight:600">${S.credits}</b><span class="t-cap">/ 10 AI Credits</span><span class="grow"></span><span class="t-cap">Resets daily</span></div><div style="height:4px;border-radius:2px;background:var(--raised)"><div style="height:100%;width:${S.credits * 10}%;background:#fff;border-radius:2px"></div></div>
+    <div class="row"><span class="t-micro muted" style="margin-right:6px">KEYACT</span><span class="badge free">Free</span><span class="grow"></span><button data-a="go" data-s="paywall" style="height:32px;padding:0 16px;border-radius:16px;background:var(--cta-bg);color:var(--cta-fg);font-size:13px;font-weight:700">UPGRADE</button></div></div>
+  <div><div class="sgroup-title">Preferences</div><div class="sgroup">${srow('globe', 'Language', null, chev('English'), 'toast" data-m="Language list')}${srow('keyboard', 'Type', null, chev(), 'go" data-s="kbSettings')}${srow('mic', 'Voice', null, chev(), 'go" data-s="voiceSettings')}${srow('wheel', 'Wheel', null, chev(), 'go" data-s="wheelSettings')}${srow('clip', 'Clips', null, chev(), 'toast" data-m="Clips: snippets and recent copies')}</div></div>
+  <div><div class="sgroup-title">Desktop Features <span style="color:var(--accent);font-size:13px">Download</span></div><div class="sgroup">${srow('phone', 'Phone Mic', null, chev(), 'go" data-s="phoneMic')}${srow('laptop', 'Desktop Clips', null, chev(), 'go" data-s="phoneMic')}</div></div>
+  <div><div class="sgroup-title">Activity &amp; Tools</div><div class="sgroup">${srow('clock', 'Execution History', S.history.length ? `${S.history.length} recent runs` : 'Recent Runs', chev(), 'toast" data-m="' + (S.history[0] ? 'Last run: ' + esc(S.history[0].name) : 'No runs yet'))}${srow('link', 'Connected Tools', null, chev(), 'toast" data-m="Connect Calendar, Mail, Notes… (simulated)')}</div></div>
+  <div><div class="sgroup-title">Support</div><div class="sgroup">${srow('chat', 'Feedback', 'Help improve Keyact', chev())}${srow('people', 'Community', null, chev())}${srow('half', 'Appearance', null, '<span class="chev"><span>Automatic ⌃⌄</span></span>')}${srow('info', 'About', null, chev())}</div></div>
+  <button class="card col" style="padding:16px;gap:6px;border-radius:20px;align-items:center" data-a="reset"><span style="color:var(--danger);font-size:17px;font-weight:500">Delete Guest Data</span><span class="t-cap" style="text-align:center">Permanently deletes your guest data from Keyact and this device. This can't be undone.</span></button></div></div>`;
+V.kbSettings = () => { const k = S.kb;
+  const T = (key, t, sub) => srow(null, t, sub, toggle(key, k[key]), '', true);
+  return `<div class="screen bg-grad fadein">${navh('Keyboard Settings')}<div class="scroll pxs col" style="gap:22px;padding-bottom:40px">
+  <div><div class="sgroup-title">Keyboard</div><div class="sgroup">${srow(null, 'Keyboard Size &amp; Position', null, chev(), '', true)}<div class="srow noicon" style="display:block"><div class="tt">Key Label Weight</div>${steps('weight', ['Thin', 'Default', 'Regular', 'SemiBold'], k.weight).replace('class="steps"', 'class="steps" style="padding:10px 0 0"')}</div>${T('upper', 'Always Show Uppercase Keys', 'Only changes the labels on keys — not what you type.')}${T('preview', 'Character Preview', 'Show a character bubble when you tap a key.')}</div></div>
+  <div><div class="sgroup-title">Feedback</div><div class="sgroup">${T('haptics', 'Haptic Feedback')}<div style="opacity:${k.haptics ? 1 : .4}">${steps('hs', ['Low', 'Medium', 'High'], k.hs).replace('class="steps"', 'class="steps" style="padding-top:0"')}</div>${T('sounds', 'Key Sounds')}</div></div>
+  <div><div class="sgroup-title">Input Assistance</div><div class="sgroup">${T('auto', 'Auto-Capitalization')}${T('dot', '"." Shortcut', 'Double-tap the space bar to insert a period.')}${T('next', 'Next-Word Suggestions')}</div></div>
+  <div><div class="sgroup-title">Gestures &amp; Keys</div><div class="sgroup">${T('slide', 'Slide to Type')}${T('swipe', 'Swipe Up for Numbers', 'Swipe up or long-press top-row keys to enter 1–0.')}${T('cursor', 'Space Bar Cursor Control', 'Drag the space bar to move the cursor.')}${T('accel', 'Backspace Swipe Acceleration', 'Hold Backspace and drag left to delete faster.')}${T('inline', 'Inline Composition', 'Show composing text in the app text field.')}${T('emoji', 'Emoji Key')}${T('comma', 'Comma Key')}</div></div>
+  <div><div class="sgroup-title">Access</div><div class="sgroup">${srow(null, 'Full Access', 'Required for shared settings and online Acts. We never store what you type.', '<span class="t-cap">Enabled</span>', '', true)}${srow(null, 'Paste Access', 'Used only when an Act requests clipboard content.', chev(), '', true)}</div></div></div></div>`; };
+V.voiceSettings = () => { const v = S.voice, notes = ['Keeps the text close to exactly what you said.', 'Cleans up filler words while keeping your meaning.', 'Builds on Clean with better formatting and fills in missing details when the context is clear.'];
+  return `<div class="screen bg-grad fadein">${navh('Voice Settings')}<div class="scroll pxs col" style="gap:22px;padding-bottom:40px">
+  <div class="sgroup">${srow(null, 'Spoken Languages', 'Languages you speak.', chev('Auto-detect'), '', true)}</div>
+  <div class="sgroup"><div class="srow noicon" style="display:block"><div class="tt">Polishing</div>${steps('pol', ['Raw', 'Clean', 'Smart'], v.pol).replace('class="steps"', 'class="steps" style="padding:10px 0 4px"')}<div class="t-cap">${notes[v.pol]}</div></div>${srow(null, 'Dictation with Emoji', 'Add emoji that match what you say.', toggle('v.emoji', v.emoji), '', true)}</div>
+  <div><div class="sgroup-title">Voice Translate</div><div class="sgroup">${srow(null, 'Translate to', 'Quick access in Voice Translate.', chev('Languages: 2'), '', true)}</div></div>
+  <div><div class="sgroup-title">Ask AI</div><div class="sgroup">${srow(null, 'Enhanced Command', 'More accurate, up-to-date answers when you need them. Turn off for faster responses.', toggle('v.enh', v.enh), '', true)}</div></div></div></div>`; };
+V.wheelSettings = () => `<div class="screen bg-grad fadein">${navh('Keyact Wheel')}<div class="scroll pxs col" style="gap:22px">
+  <div><div class="sgroup-title">How it works</div><div class="sgroup" style="padding:16px"><div style="font-size:17px;font-weight:500">Hold the space bar to open the Wheel</div><div class="t-cap" style="margin:4px 0 12px">Slide to choose, release to run</div><div style="height:170px;border-radius:16px;overflow:hidden">${introDemo()}</div></div></div>
+  <div><div class="sgroup-title">Manage Wheel</div><div class="sgroup" style="padding:16px"><div style="font-size:17px;font-weight:500;margin-bottom:16px">Tap a slot to change it. Hold to remove.</div><div class="row" style="justify-content:space-between;padding:0 4px">${S.wheel.map((id, i) => { const a = findAct(id); return `<button class="col" style="align-items:center;gap:6px;width:56px" data-a="slot" data-i="${i}">${a ? actIcon(a, 44) : '<span class="plus" style="width:44px;height:44px;border-radius:50%;border:1px dashed var(--text-3);display:grid;place-items:center;color:var(--text-3)">+</span>'}<span class="t-micro muted" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;width:56px;text-align:center">${a ? esc(a.name) : '&nbsp;'}</span></button>`; }).join('')}</div></div></div></div>
+  ${S.sheet != null && String(S.sheet).startsWith('slot') ? slotSheet(+S.sheet.slice(4)) : ''}</div>`;
+const slotSheet = i => `<div class="sheet-wrap"><div class="sheet half"><div class="navh"><button data-a="closeSheet" style="color:var(--accent)">Close</button><h2>Slot ${i + 1}</h2><span></span></div><div class="pxs"><div class="subtabs" style="margin-bottom:12px"><button aria-pressed="true">My Acts</button><button>Keyact Tools</button></div><div class="card" style="padding:0 12px">${S.added.filter(id => id !== 'ai').map(findAct).concat(S.added.length < 3 ? [ACTS[2], ACTS[12]] : []).map(a => `<button class="act-row" data-a="pickslot" data-i="${i}" data-id="${a.id}">${actIcon(a)}<span class="grow nm">${esc(a.name)}</span>${S.wheel[i] === a.id ? `<span style="color:var(--accent)">${ic('check')}</span>` : ''}</button>`).join('')}</div></div></div></div>`;
+V.phoneMic = () => `<div class="screen bg-grad fadein">${navh('Phone Mic')}<div class="scroll pxs col" style="gap:18px"><div class="card col" style="padding:18px;gap:14px;background:#1C2735"><div class="row" style="justify-content:space-between"><span class="row" style="gap:4px"><span class="t-micro">KEYACT</span><span class="badge pro">Pro</span></span><span class="t-micro muted">EXCLUSIVE FEATURE</span></div><h2 class="h-display" style="text-align:left">Phone Mic</h2><p class="t-body muted" style="margin:0">Speak into your phone. Polished text appears on your computer.</p>
+  <div class="row" style="height:110px;justify-content:center;gap:22px;border-radius:16px;background:rgba(47,55,66,.5)"><span class="col" style="align-items:center;gap:6px">${ic('phone', 26)}<span class="t-micro">Your Voice</span></span><span class="row" style="gap:3px">${[8, 16, 24, 14, 28, 18, 10, 20, 8].map(h => `<i style="width:3px;height:${h}px;border-radius:2px;background:#fff"></i>`).join('')}</span><span class="col" style="align-items:center;gap:6px">${ic('laptop', 26)}<span class="t-micro">Polished Text</span></span></div></div>
+  <div><div class="sgroup-title">Connect in two steps</div><div class="sgroup">${[['Download Keyact Desktop', 'Install and open Keyact on your computer.'], ['Scan to log in', 'Use the Keyact app to scan the desktop QR code.']].map(([t, s], i) => `<div class="srow" style="align-items:flex-start"><span style="width:24px;height:24px;border-radius:50%;box-shadow:inset 0 0 0 1px var(--text-3);display:grid;place-items:center;font-size:13px;flex:none">${i + 1}</span><span class="grow"><div class="tt">${t}</div><div class="st">${s}</div></span></div>`).join('')}</div></div></div>
+  <div class="pxs" style="padding-bottom:34px;padding-top:12px"><button class="primary" data-a="go" data-s="paywall">Login</button></div></div>`;
+V.paywall = () => `<div class="screen bg-grad fadein"><div class="pxs row" style="justify-content:flex-end">${circle('x', 'back', false, 'Close')}</div><div class="scroll pxs col" style="gap:20px;align-items:center">${orb(72, 'pulse')}<div class="row" style="gap:6px"><span class="h-title">KEYACT</span><span class="badge pro">Pro</span></div>
+  <div class="card col" style="padding:16px;gap:12px;width:100%;border-radius:20px">${[['More AI credits every day'], ['Advanced models for Acts and Ask AI'], ['Desktop app, Phone Mic and Desktop Clips'], ['Priority access to new features']].map(([t]) => `<div class="row" style="gap:12px"><span style="color:var(--accent)">${ic('check', 18)}</span><span class="t-body">${t}</span></div>`).join('')}</div>
+  ${[['Annual', '$94.99 / year', 'Save 20%', S.annual !== false], ['Monthly', '$9.99 / month', null, S.annual === false]].map(([t, p, n, sel]) => `<button class="row" data-a="plan" data-y="${t === 'Annual'}" style="width:100%;padding:16px;border-radius:16px;background:var(--card);gap:10px;box-shadow:inset 0 0 0 ${sel ? 2 : 1}px ${sel ? 'var(--accent)' : 'var(--hair)'}"><span style="color:${sel ? 'var(--accent)' : 'var(--text-3)'}">${sel ? '◉' : '○'}</span><span style="font-size:17px;font-weight:500">${t}</span>${n ? `<span class="badge new">${n}</span>` : ''}<span class="grow"></span><span class="muted">${p}</span></button>`).join('')}</div>
+  <div class="pxs col" style="gap:8px;padding-bottom:34px;align-items:center"><button class="primary" disabled>Continue</button><span class="t-cap" style="color:var(--text-3)">Demo build — purchases are disabled.</span></div></div>`;
+
+// ---------- render / nav ----------
+function render() {
+  const sc = S.screen === 'homeMy' ? 'home' : S.screen;
+  const scrollEl = phone.querySelector('.screen .scroll'); const keep = scrollEl && S.lastScreen === sc ? scrollEl.scrollTop : 0;
+  phone.innerHTML = status() + V[sc]() + (S.toastMsg ? `<div class="toast">${esc(S.toastMsg)}</div>` : '') + '<span class="home-ind"></span>';
+  const ns = phone.querySelector('.screen .scroll'); if (ns && keep && S.lastScreen === sc) ns.scrollTop = keep;
+  phone.querySelectorAll('.screen').forEach((n, i) => { if (S.lastScreen === sc || i) n.classList.remove('fadein'); });
+  S.lastScreen = sc;
+  if (sc === 'demo') { bindKeyboard(); scrollMsgs(); }
+  renderToc();
+}
+function go(s, push = true) {
+  if (push && S.screen !== s) S.stack.push(S.screen);
+  S.sheet = null; S.screen = s;
+  if (s === 'homeMy') S.tab = 'my'; else if (s === 'home') S.tab = S.tab || 'all';
+  if (s === 'detail') { S.loading = true; setTimeout(() => { S.loading = false; if (S.screen === 'detail') render(); }, 450); }
+  if (s === 'demo') { S.demo = { stage: 'intro', msgs: [], input: '', sel: false, typing: false, hint: null, mode: 'typing', panel: null, act: null, layer: 'abc', shift: false, done: false }; render(); startDemo(); return; }
+  render();
+}
+function back() { const s = S.stack.pop(); go(s || 'home', false); }
+function toast(m) { S.toastMsg = m; render(); clearTimeout(toast.t); toast.t = setTimeout(() => { S.toastMsg = null; render(); }, 1800); }
+function renderToc() {
+  const cur = S.screen === 'home' && S.tab === 'my' ? 'homeMy' : S.screen;
+  document.getElementById('toc').innerHTML = SCREENS.map(([g, items]) => `<div class="grp">${g}</div>` + items.map(([id, l]) => `<button data-jump="${id}" aria-current="${cur === id}">${l}</button>`).join('')).join('');
+}
+document.getElementById('toc').addEventListener('click', e => { const b = e.target.closest('[data-jump]'); if (!b) return; S.stack = []; const id = b.dataset.jump; if (id === 'home') S.tab = 'all'; if (id === 'detail') S.detail = 'native'; if (id === 'category') S.cat = 'writing'; go(id, false); });
+
+phone.addEventListener('click', e => {
+  const el = e.target.closest('[data-a]'); if (!el) return;
+  if (el.dataset.a === 'closeSheet' && e.target.closest('[data-stop]') && el.classList.contains('sheet-wrap')) return;
+  const a = el.dataset.a, d = el.dataset;
+  switch (a) {
+    case 'go': if (d.s === 'home' && S.screen === 'settings') return back(); go(d.s); break;
+    case 'back': back(); break;
+    case 'enableFA': if (S.guide) { S.guide = false; go('ready'); } else { S.guide = true; render(); } break;
+    case 'send': send(); break;
+    case 'kbacts': S.demo.mode = 'acts'; if (S.demo.hint === 'acts') S.demo.hint = null; render(); break;
+    case 'kbtype': S.demo.mode = 'typing'; render(); break;
+    case 'kbclose': S.demo.mode = 'typing'; render(); break;
+    case 'runact': runAct(findAct(d.id)); break;
+    case 'apply': applyResult(d.o); break;
+    case 'finishDemo': S.stack = []; S.tab = 'all'; go('home', false); break;
+    case 'tab': S.tab = d.t; S.screen = 'home'; render(); break;
+    case 'myf': S.myFilter = d.f; render(); break;
+    case 'openSettings': S.coachGear = false; go('settings'); break;
+    case 'open': e.stopPropagation(); S.detail = d.id; go('detail'); break;
+    case 'add': e.stopPropagation(); { const i = S.added.indexOf(d.id); if (d.id === 'ai') break; if (i >= 0) S.added.splice(i, 1); else S.added.push(d.id); render(); } break;
+    case 'jump': phone.querySelector('#sec-' + (d.c === 'translate' ? 'writing' : d.c))?.scrollIntoView({ behavior: 'smooth', block: 'start' }); break;
+    case 'cat': S.cat = d.c; go('category'); break;
+    case 'tryit': S.sheet = 'tryit'; S.tryOut = null; S.tryIn = null; render(); break;
+    case 'runtry': { const a2 = findAct(S.detail); const inp = phone.querySelector('#tryin').value; S.tryIn = inp; if (S.credits <= 0) { render(); break; } S.credits--; S.tryRunning = true; render(); setTimeout(() => { S.tryRunning = false; S.tryOut = respond(a2, inp); S.history.unshift({ name: a2.name }); render(); }, 1200); } break;
+    case 'assign': S.sheet = 'assign'; render(); break;
+    case 'setkey': { const id = S.detail; for (const k in S.keys) if (S.keys[k] === id) delete S.keys[k]; if (d.key) { S.keys[d.key] = id; if (!S.added.includes(id)) S.added.push(id); } S.sheet = null; render(); toast(d.key ? `Assigned to “${d.key.toUpperCase()}”` : 'Assignment removed'); } break;
+    case 'closeSheet': S.sheet = null; render(); break;
+    case 'tog': { const k = d.k; if (k.startsWith('v.')) S.voice[k.slice(2)] = !S.voice[k.slice(2)]; else S.kb[k] = !S.kb[k]; render(); } break;
+    case 'slot': if (+d.i !== 2) { S.sheet = 'slot' + d.i; render(); } break;
+    case 'pickslot': S.wheel[+d.i] = d.id; S.sheet = null; render(); break;
+    case 'plan': S.annual = d.y === 'true'; render(); break;
+    case 'toast': toast(d.m); break;
+    case 'agentsend': agentSend(d.t); break;
+    case 'saveact': { const last = [...S.agent].reverse().find(m => m.p); if (last && !S.created.includes(last.p)) { S.created.unshift(last.p); S.added.push(last.p.id); S.agent.push({ t: `Saved! “${last.p.name}” is in My › Created and on your keyboard's Act tab.` }); render(); } } break;
+    case 'reset': S.added = ['ai']; S.created = []; S.keys = {}; S.credits = 10; S.history = []; S.coachGear = true; S.stack = []; go('intro', false); break;
+  }
+});
+phone.addEventListener('input', e => {
+  const el = e.target; if (el.dataset.a !== 'range') return;
+  const v = +el.value, k = el.dataset.k; if (k === 'pol') S.voice.pol = v; else S.kb[k] = v; render();
+});
+phone.addEventListener('submit', e => { e.preventDefault(); const inp = phone.querySelector('#agentin'); if (inp?.value.trim()) agentSend(inp.value.trim()); });
+async function agentSend(t) {
+  S.agent = S.agent || []; S.agent.push({ user: true, t }); S.agentThinking = true; render();
+  await wait(1400); S.agentThinking = false;
+  const name = t.split(' ').slice(0, 4).map(w => w[0].toUpperCase() + w.slice(1)).join(' ');
+  const p = { id: 'c' + Date.now(), name, summary: t, overview: t, glyph: '✧', c1: '#D0BFFF', c2: '#7048E8', kind: 'custom', author: 'You', authorActs: 1, uses: 0, input: /clipboard|copied/i.test(t) ? 'Clipboard' : 'Text Entered', output: /append|link/i.test(t) ? 'Append After' : 'In-Place Replace', tools: [] };
+  S.agent.push({ t: "Here's a plan for your Act. It reads the input, applies your instruction and delivers the result as shown.", p }); render();
+  const log = phone.querySelector('#agentlog'); if (log) log.scrollTop = log.scrollHeight;
+}
+
+// intro auto demo loop
+setInterval(() => { introBeat = (introBeat + 1) % BEATS.length; if (S.screen === 'intro' || S.screen === 'wheelSettings') render(); }, 2400);
+render();
+})();
+</script>

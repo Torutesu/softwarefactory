@@ -7,6 +7,10 @@
 - **名前・ロゴ・文言**: 本家のものは使わず、仮名「Keyact」と仮デザインに置き換えています（[`assets-todo.md`](../../docs/app-clone/acti/assets-todo.md)）
 - **AI**: ネットワークを使わないモック（`Shared/Models/MockAI.swift`）。実際の LLM に差し替えるときは `AIService` を実装して注入します
 
+## ブラウザで見るプロトタイプ
+
+`prototype/index.html` は、SwiftUI 実装と同じトークン・レイアウト・流れで作った HTML 版のプロトタイプです（Xcode なしで触れる確認用）。AI の応答は固定、購入は無効です。
+
 ## 動かし方（Mac + Xcode 15 以上）
 
 ```bash
