@@ -16,3 +16,6 @@ __pycache__/
 .coverage
 .coverage.*
 htmlcov/
+
+# app-clone Skill のフレーム切り出し (大きいので追跡しない)
+docs/app-clone/*/frames/

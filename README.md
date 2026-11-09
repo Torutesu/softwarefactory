@@ -339,6 +339,18 @@ factory pr <id>              # origin + gh があれば PR 作成、無ければ
 
 緊急停止: `touch .factory/PAUSE` で tick は何もしなくなる (消せば次の tick から再開)。
 
+## Claude Code Skill: 競合アプリの忠実再現 (`/app-clone`)
+
+`.claude/skills/app-clone/` に、競合アプリ (Web / Mac / iPhone) を調査し、画面録画から UI・
+インタラクション・遷移を再現するコードを生成する Skill を同梱しています (他 Skill 非依存)。
+
+1. `/app-clone <競合名 or URL>` → 調査・技術スタック推察・録画チェックリストを `docs/app-clone/<slug>/` に作成
+2. 無料範囲はそのまま録画依頼、有料範囲は承認を取ってから
+3. 録画を渡すと `scripts/extract_frames.sh` (ffmpeg) でフレームを切り出し、画面リスト・遷移図・デザインシステムを構造化
+4. デザイントークン → コンポーネント → 画面の順に実装し、録画フレームと比較して差分を潰す
+
+ロゴ・商標・画像・文言そのものはコピーせずプレースホルダーに置き換えます。
+
 ## ディレクトリ構成
 
 ```
