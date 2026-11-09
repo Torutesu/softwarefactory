@@ -40,10 +40,11 @@ enum KA {
         static let raised = Color.dynamic(dark: 0x2F3742, light: 0xE6E9EF)
         static let segmentTrack = Color.dynamic(dark: 0x2A2F38, light: 0xE3E6EC)
         static let segmentThumb = Color.dynamic(dark: 0x595E6C, light: 0xFFFFFF)
-        static let pillAdd = Color.dynamic(dark: 0x034BFF, light: 0x034BFF, darkAlpha: 0.25, lightAlpha: 0.12)
-        static let accent = Color(hex: 0x6B95FF)       // 文字用 (暗い背景で読める明るさ)
-        static let brand = Color(hex: 0x034BFF)        // ロゴの青
-        static let brandHi = Color(hex: 0x4F7DFF)
+        static let pillAdd = Color.dynamic(dark: 0x2A3644, light: 0xE4EEF9)
+        static let accent = Color(hex: 0x5094D7)       // 録画の Add・リンクの青
+        static let brand = Color(hex: 0x034BFF)        // ShogunAI ロゴの青
+        static let toggleOn = Color(hex: 0x2F86FF)
+        static let chip = Color.dynamic(dark: 0x262C35, light: 0xFFFFFF)
         static let badgeNewBg = Color(hex: 0x3C6E9C)
         static let badgeNewText = Color(hex: 0xDCE8ED)
         static let ctaBg = Color.dynamic(dark: 0xF1F2F7, light: 0x11161D)
@@ -57,15 +58,15 @@ enum KA {
         static let success = Color(hex: 0x34C759)
         static let heroTop = Color(hex: 0xE7EAF2)
         static let heroBottom = Color(hex: 0xC9D3E8)
-        static let orb = [Color(hex: 0x9CC0FF), Color(hex: 0x034BFF), Color(hex: 0x5B7CFF), Color(hex: 0xBFD6FF), Color(hex: 0x2F6BFF), Color(hex: 0x9CC0FF)]
+        static let orb = [Color(hex: 0xA8D8FF), Color(hex: 0x4E7BFF), Color(hex: 0x9B7CFF), Color(hex: 0x7FE3F0), Color(hex: 0xA8D8FF)]
 
         // キーボード (録画のデモ画面から計測)
-        static let kbBg = Color.dynamic(dark: 0x26282E, light: 0xE4E6EC, darkAlpha: 0.62, lightAlpha: 0.7)
-        static let kbKey = Color.dynamic(dark: 0xFFFFFF, light: 0xFFFFFF, darkAlpha: 0.16, lightAlpha: 0.85)
-        static let kbKeySpecial = Color.dynamic(dark: 0xFFFFFF, light: 0x000000, darkAlpha: 0.07, lightAlpha: 0.12)
-        static let kbKeyPressed = Color.dynamic(dark: 0xFFFFFF, light: 0xFFFFFF, darkAlpha: 0.32, lightAlpha: 0.5)
+        static let kbBg = Color.dynamic(dark: 0x222222, light: 0xD4D6DC)
+        static let kbKey = Color.dynamic(dark: 0x414141, light: 0xFFFFFF)
+        static let kbKeySpecial = Color.dynamic(dark: 0x2C2C2C, light: 0xABB0BA)
+        static let kbKeyPressed = Color.dynamic(dark: 0x5A5A5A, light: 0xC4C8D0)
         static let kbText = Color.dynamic(dark: 0xFFFFFF, light: 0x000000)
-        static let kbPanelBox = Color.dynamic(dark: 0xFFFFFF, light: 0xFFFFFF, darkAlpha: 0.08, lightAlpha: 0.8)
+        static let kbPanelBox = Color.dynamic(dark: 0x303030, light: 0xFFFFFF)
         static let kbHighlight = Color(hex: 0x3D7BF7)
 
         // デモ用の擬似メッセージアプリ
@@ -91,15 +92,16 @@ enum KA {
 
         static let display = font(28, .semibold)
         static let hero = font(26, .semibold)
-        static let title = font(20, .semibold)
+        static let title = font(18, .medium)
         static let navTitle = font(18, .semibold)
-        static let headline = font(17, .medium)
+        static let headline = font(16, .medium)
+        static let row = font(16)
         static let body = font(15)
         static let bodyMedium = font(15, .medium)
         static let caption = font(13)
         static let micro = font(11, .medium)
         static let button = font(17, .semibold)
-        static let chip = font(16, .medium)
+        static let chip = font(14, .medium)
     }
 
     // MARK: Spacing / Radius / Size

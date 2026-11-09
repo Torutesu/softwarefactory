@@ -10,10 +10,10 @@ struct PrimaryButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(KA.F.button)
-            .foregroundStyle(.white)
+            .foregroundStyle(KA.C.ctaText)
             .frame(maxWidth: .infinity)
             .frame(height: KA.Size.primaryButton)
-            .liquidGlass(.prominent, in: Capsule(), interactive: true)
+            .background(Capsule().fill(KA.C.ctaBg))
             .opacity(isEnabled ? 1 : 0.35)
             .scaleEffect(configuration.isPressed ? 0.97 : 1)
             .animation(KA.M.press, value: configuration.isPressed)
@@ -26,8 +26,8 @@ struct SecondaryButtonStyle: ButtonStyle {
             .font(KA.F.bodyMedium)
             .foregroundStyle(KA.C.text)
             .frame(maxWidth: .infinity)
-            .frame(height: 48)
-            .liquidGlass(in: RoundedRectangle(cornerRadius: KA.R.inner, style: .continuous), interactive: true)
+            .frame(height: 52)
+            .background(Capsule().fill(KA.C.raised))
             .scaleEffect(configuration.isPressed ? 0.97 : 1)
             .animation(KA.M.press, value: configuration.isPressed)
     }
@@ -42,6 +42,20 @@ struct PressableStyle: ButtonStyle {
     }
 }
 
+/// 内容の上に浮く副ボタン (Act 詳細の Remix / Add)。リキッドグラス
+struct GlassButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(KA.F.bodyMedium)
+            .foregroundStyle(KA.C.text)
+            .frame(maxWidth: .infinity)
+            .frame(height: 52)
+            .contentShape(Capsule())
+            .liquidGlass(in: Capsule(), interactive: false)
+    }
+}
+
+extension ButtonStyle where Self == GlassButtonStyle { static var floatingGlass: GlassButtonStyle { .init() } }
 extension ButtonStyle where Self == PrimaryButtonStyle { static var primary: PrimaryButtonStyle { .init() } }
 extension ButtonStyle where Self == SecondaryButtonStyle { static var secondary: SecondaryButtonStyle { .init() } }
 extension ButtonStyle where Self == PressableStyle { static var pressable: PressableStyle { .init() } }
@@ -58,10 +72,28 @@ struct CircleIconButton: View {
                 .font(.system(size: 18, weight: .medium))
                 .foregroundStyle(KA.C.text)
                 .frame(width: KA.Size.circleButton, height: KA.Size.circleButton)
-                .liquidGlass(in: Circle(), interactive: true)
+                .contentShape(Circle())
+                .liquidGlass(in: Circle())
                 .overlay { if highlighted { Circle().stroke(Color.white, lineWidth: 2) } }
         }
         .buttonStyle(.pressable)
+    }
+}
+
+/// ナビゲーションバー (toolbar) に置くアイコンボタン。iOS 26 はシステムが自動でガラスにするので素のアイコン、
+/// それ以前は CircleIconButton で同じ見た目を作る (ガラスが二重にならないように)
+struct ToolbarIconButton: View {
+    var systemName: String
+    var action: () -> Void
+
+    var body: some View {
+        if #available(iOS 26.0, *) {
+            Button(action: action) {
+                Image(systemName: systemName).font(.system(size: 17, weight: .medium))
+            }
+        } else {
+            CircleIconButton(systemName: systemName, action: action)
+        }
     }
 }
 
@@ -139,10 +171,11 @@ struct Chip: View {
         Button(action: action) {
             Text(title)
                 .font(KA.F.chip)
-                .foregroundStyle(selected ? .white : KA.C.text)
-                .padding(.horizontal, 18)
+                .foregroundStyle(selected ? KA.C.ctaText : KA.C.text)
+                .padding(.horizontal, 16)
                 .frame(height: KA.Size.chip)
-                .liquidGlass(selected ? .prominent : .control, in: Capsule(), interactive: true)
+                .background(Capsule().fill(selected ? KA.C.ctaBg : KA.C.chip))
+                .overlay(Capsule().stroke(KA.C.hairline, lineWidth: 1))
         }
         .buttonStyle(.pressable)
     }
@@ -189,7 +222,7 @@ struct AddPill: View {
         Button(action: action) {
             Text(added ? "Added" : "Add")
                 .font(KA.F.bodyMedium)
-                .foregroundStyle(added ? KA.C.textSecondary : Color(hex: 0xCFE0FF))
+                .foregroundStyle(added ? KA.C.textSecondary : KA.C.accent)
                 .frame(width: 64, height: KA.Size.addPill)
                 .background(Capsule().fill(added ? KA.C.raised.opacity(0.6) : KA.C.pillAdd))
         }
@@ -206,20 +239,60 @@ struct ActIcon: View {
     var size: CGFloat = KA.Size.rowIcon
 
     var body: some View {
+        let style = ActIconStyle.of(act)
         ZStack {
             Circle().fill(
-                LinearGradient(
-                    colors: act.colors.map { Color(hex: $0) },
-                    startPoint: .topLeading, endPoint: .bottomTrailing
+                RadialGradient(
+                    colors: [.white, Color(hex: style.tint), Color(hex: ActIconStyle.shade(style.tint))],
+                    center: UnitPoint(x: 0.34, y: 0.28), startRadius: 0, endRadius: size * 0.75
                 )
             )
-            Circle().fill(.white.opacity(0.18)).padding(size * 0.08).blur(radius: 2)
-            Image(systemName: act.symbol)
-                .font(.system(size: size * 0.42, weight: .semibold))
-                .foregroundStyle(.white)
-                .shadow(color: .black.opacity(0.15), radius: 2, y: 1)
+            .overlay(Circle().stroke(.white.opacity(0.9), lineWidth: 1).blur(radius: 0.5).mask(LinearGradient(colors: [.white, .clear], startPoint: .top, endPoint: .center)))
+            .shadow(color: .black.opacity(0.25), radius: 3, y: 2)
+            if let emoji = style.emoji {
+                Text(emoji).font(.system(size: size * 0.5))
+            } else {
+                Image(systemName: act.symbol)
+                    .font(.system(size: size * 0.42, weight: .semibold))
+                    .foregroundStyle(Color(hex: act.colors.last ?? 0x7048E8))
+            }
         }
         .frame(width: size, height: size)
+    }
+}
+
+/// 録画の Act アイコン (立体的なパステル調のイラスト) に近づけるための絵文字と色。ID から引く (保存データは変えない)
+enum ActIconStyle {
+    struct Style { var emoji: String?; var tint: UInt32 }
+
+    private static let table: [String: Style] = [
+        "translate-any": Style(emoji: "🌐", tint: 0xDCEBFF), "restyle": Style(emoji: "🖋️", tint: 0xF1E3FF),
+        "polish": Style(emoji: "📝", tint: 0xE3F0FF), "native": Style(emoji: "💬", tint: 0xDFF7E8),
+        "post": Style(emoji: "✍️", tint: 0xFFE5E5), "prompt": Style(emoji: "🎯", tint: 0xE3E9FF),
+        "decode": Style(emoji: "🈂️", tint: 0xDDF6F4), "explain": Style(emoji: "💡", tint: 0xFFF6D6),
+        "keypoints": Style(emoji: "📌", tint: 0xFFE6E0), "warm-reply": Style(emoji: "🤗", tint: 0xFFF1D6),
+        "charm-reply": Style(emoji: "😏", tint: 0xFFE3EA), "office-reply": Style(emoji: "💼", tint: 0xF5EAD9),
+        "meet": Style(emoji: "📹", tint: 0xDFF0FF), "language-buddy": Style(emoji: "🎓", tint: 0xE6E4FF),
+        "save-note": Style(emoji: "🗒️", tint: 0xF0F2F5), "emojify": Style(emoji: "😜", tint: 0xFFF4C9),
+        "lyrics": Style(emoji: "🎵", tint: 0xECE6FF), "fortune": Style(emoji: "🔮", tint: 0xEEE2FF),
+        "market": Style(emoji: "📈", tint: 0xE0F7E7), "coin": Style(emoji: "🪙", tint: 0xFFF0D2),
+        "stock": Style(emoji: "📊", tint: 0xE2F2FF), "trip": Style(emoji: "✈️", tint: 0xDFF0FF),
+        "eats": Style(emoji: "🍜", tint: 0xFFE9DD), "packing": Style(emoji: "🧳", tint: 0xF2E7DD),
+    ]
+
+    /// 球の縁用に少し暗くした色 (青みのグレーと 22% 混ぜる)
+    static func shade(_ c: UInt32) -> UInt32 {
+        func ch(_ v: UInt32, _ shift: UInt32) -> UInt32 { (v >> shift) & 0xFF }
+        let g: UInt32 = 0x8A96B0
+        var out: UInt32 = 0
+        for shift in [16, 8, 0] as [UInt32] {
+            out |= ((ch(c, shift) * 78 + ch(g, shift) * 22) / 100) << shift
+        }
+        return out
+    }
+
+    static func of(_ act: ActItem) -> Style {
+        table[act.id] ?? Style(emoji: nil, tint: 0xECE6FF)
     }
 }
 
@@ -328,8 +401,8 @@ struct CardBackground: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .background(RoundedRectangle(cornerRadius: radius, style: .continuous).fill(fill.opacity(0.35)))
-            .liquidGlass(.surface, in: RoundedRectangle(cornerRadius: radius, style: .continuous))
+            .background(RoundedRectangle(cornerRadius: radius, style: .continuous).fill(fill))
+            .overlay(RoundedRectangle(cornerRadius: radius, style: .continuous).stroke(KA.C.hairline, lineWidth: 1))
     }
 }
 
@@ -340,7 +413,10 @@ extension View {
 
     /// 画面背景 (上部にうっすら青いグラデーション)
     func screenBackground() -> some View {
-        background(BrandGlowBackground())
+        background(
+            LinearGradient(colors: [KA.C.bgGradientTop, KA.C.bg], startPoint: .top, endPoint: .init(x: 0.5, y: 0.3))
+                .ignoresSafeArea()
+        )
     }
 }
 
@@ -419,12 +495,13 @@ struct SettingsRow<Accessory: View>: View {
         HStack(spacing: 14) {
             if let icon {
                 Image(systemName: icon)
-                    .font(.system(size: 18, weight: .regular))
-                    .foregroundStyle(KA.C.text)
-                    .frame(width: 26)
+                    .font(.system(size: 20, weight: .regular))
+                    .symbolRenderingMode(.palette)
+                    .foregroundStyle(KA.C.text, KA.C.accent)
+                    .frame(width: 28)
             }
             VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(KA.F.headline).foregroundStyle(titleColor)
+                Text(title).font(KA.F.row).foregroundStyle(titleColor)
                 if let subtitle {
                     Text(subtitle).font(KA.F.caption).foregroundStyle(KA.C.textSecondary).fixedSize(horizontal: false, vertical: true)
                 }
@@ -433,8 +510,8 @@ struct SettingsRow<Accessory: View>: View {
             accessory
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 14)
-        .frame(minHeight: 56)
+        .padding(.vertical, 12)
+        .frame(minHeight: 64)
         .contentShape(Rectangle())
     }
 }
@@ -459,7 +536,7 @@ struct ToggleRow: View {
 
     var body: some View {
         SettingsRow(icon: icon, title: title, subtitle: subtitle) {
-            Toggle("", isOn: $isOn).labelsHidden().tint(KA.C.accent)
+            Toggle("", isOn: $isOn).labelsHidden().tint(KA.C.toggleOn)
         }
     }
 }

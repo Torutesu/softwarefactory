@@ -21,20 +21,23 @@ struct HomeView: View {
 
     var body: some View {
         NavigationStack(path: $path) {
-            ZStack(alignment: .bottom) {
-                VStack(spacing: 0) {
-                    header
-                    Group {
-                        switch tab {
-                        case .all: AllActsView(path: $path, showTips: $showTips)
-                        case .my: MyActsView(path: $path)
-                        }
-                    }
-                    .frame(maxHeight: .infinity)
+            // 上部のボタン群と下部の入力バーは内容の上に浮く (リキッドグラス)。内容はその下をスクロールして透ける
+            Group {
+                switch tab {
+                case .all: AllActsView(path: $path, showTips: $showTips)
+                case .my: MyActsView(path: $path)
                 }
+            }
+            .frame(maxHeight: .infinity)
+            .softScrollEdges()
+            .safeAreaInset(edge: .top, spacing: 0) {
+                header.background(alignment: .top) { LegacyEdgeFade(edge: .top) }
+            }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
                 ComposerBar { path.append(.agent(nil, nil)) }
-                    .padding(.horizontal, KA.S.screenH)
+                    .padding(.horizontal, KA.S.screenH + 2)
                     .padding(.bottom, 4)
+                    .background(alignment: .bottom) { LegacyEdgeFade(edge: .bottom) }
             }
             .screenBackground()
             .toolbar(.hidden, for: .navigationBar)

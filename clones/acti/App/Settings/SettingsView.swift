@@ -75,10 +75,10 @@ struct SettingsView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    CircleIconButton(systemName: "xmark") { dismiss() }
+                    ToolbarIconButton(systemName: "xmark") { dismiss() }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    CircleIconButton(systemName: "qrcode.viewfinder") { showScanner = true }
+                    ToolbarIconButton(systemName: "qrcode.viewfinder") { showScanner = true }
                 }
             }
             .alert("Delete guest data?", isPresented: $confirmDelete) {

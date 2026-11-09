@@ -17,25 +17,30 @@ struct ActDetailView: View {
     private var isMine: Bool { store.state.createdActs.contains { $0.id == act.id } }
 
     var body: some View {
-        VStack(spacing: 0) {
+        ZStack {
+            if loaded {
+                content.transition(.opacity)
+            } else {
+                VStack {
+                    Spacer()
+                    OrbIcon(size: 70, pulsing: true, grayscale: true)
+                    Spacer()
+                }
+            }
+        }
+        .frame(maxHeight: .infinity)
+        .softScrollEdges()
+        // 戻る / その他のボタンと、下の Remix・Add は内容の上に浮く (録画でも内容が透けて見える)
+        .safeAreaInset(edge: .top, spacing: 0) {
             NavHeader(
                 title: "",
                 leading: AnyView(CircleIconButton(systemName: "chevron.left") { dismiss() }),
                 trailing: AnyView(moreMenu)
             )
-            ZStack {
-                if loaded {
-                    content.transition(.opacity)
-                } else {
-                    VStack {
-                        Spacer()
-                        OrbIcon(size: 70, pulsing: true, grayscale: true)
-                        Spacer()
-                    }
-                }
-            }
-            .frame(maxHeight: .infinity)
-            bottomBar
+            .background(alignment: .top) { LegacyEdgeFade(edge: .top) }
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            bottomBar.background(alignment: .bottom) { LegacyEdgeFade(edge: .bottom) }
         }
         .screenBackground()
         .toolbar(.hidden, for: .navigationBar)
@@ -56,7 +61,7 @@ struct ActDetailView: View {
     private var content: some View {
         ScrollView {
             VStack(spacing: 12) {
-                Text(current.name).font(KA.F.title).foregroundStyle(KA.C.text).padding(.top, 4).padding(.bottom, 8)
+                Text(current.name).font(KA.F.font(19, .medium)).foregroundStyle(KA.C.text).padding(.top, 4).padding(.bottom, 8)
                 AuthorCard(
                     name: current.author, acts: current.authorActs, verified: current.isOfficial,
                     showsFollow: !current.isOfficial && current.author != "You",
@@ -101,11 +106,11 @@ struct ActDetailView: View {
         VStack(spacing: 10) {
             HStack(spacing: 10) {
                 Button { path.append(.agent(nil, current)) } label: { Label("Remix", systemImage: "shuffle") }
-                    .buttonStyle(.secondary)
+                    .buttonStyle(.floatingGlass)
                 Button { store.toggleAdded(current) } label: {
                     Label(store.isAdded(current) ? "Added" : "Add", systemImage: store.isAdded(current) ? "checkmark.circle" : "plus.circle")
                 }
-                .buttonStyle(.secondary)
+                .buttonStyle(.floatingGlass)
                 .disabled(current.id == ActCatalog.aiID)
             }
             Button("Try It") { showTry = true }
@@ -138,8 +143,8 @@ struct ActDetailView: View {
                 .font(.system(size: 16, weight: .semibold))
                 .foregroundStyle(KA.C.text)
                 .frame(width: KA.Size.circleButton, height: KA.Size.circleButton)
-                .background(Circle().fill(KA.C.raised.opacity(0.85)))
-                .overlay(Circle().stroke(KA.C.hairline, lineWidth: 1))
+                .contentShape(Circle())
+                .liquidGlass(in: Circle())
         }
     }
 }

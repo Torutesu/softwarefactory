@@ -9,11 +9,11 @@
   color-scheme: dark;
   /* Color — Shared/DesignSystem/Tokens.swift と同じ値 */
   --bg: #11161D; --bg-top: #131B28; --card: #242A31; --card-alt: #272C35; --raised: #2F3742;
-  --seg-track: #2A2F38; --seg-thumb: #595E6C; --pill-add: rgba(3,75,255,.22); --accent: #6B95FF; --brand: #034BFF; --brand-hi: #4F7DFF;
+  --seg-track: #2A2F38; --seg-thumb: #595E6C; --pill-add: #2A3644; --accent: #5094D7; --brand: #034BFF; --toggle-on: #2F86FF;
   --badge-bg: #3C6E9C; --badge-fg: #DCE8ED; --cta-bg: #F1F2F7; --cta-fg: #11161D;
   --text: #FFFFFF; --text-2: #989EA5; --text-3: #5C626B; --hair: rgba(255,255,255,.08); --divider: rgba(255,255,255,.06);
   --danger: #E5484D; --success: #34C759; --hero-a: #E7EAF2; --hero-b: #C9D3E8;
-  --kb-bg: rgba(38,40,46,.62); --kb-key: rgba(255,255,255,.16); --kb-special: rgba(255,255,255,.07); --kb-pressed: rgba(255,255,255,.32); --kb-box: #303030; --kb-hl: #3D7BF7;
+  --kb-bg: #222222; --kb-key: #414141; --kb-special: #2C2C2C; --kb-pressed: #5A5A5A; --kb-box: #303030; --kb-hl: #3D7BF7;
   --chat-bg: #000000; --bubble-in: #242328; --bubble-out: #1F8BFF; --send: #52E76F; --input-bg: #1B1B1B;
   --stage: #07090C; --stage-fg: #C9CED6;
   /* Type */
@@ -59,7 +59,7 @@ input, textarea { font: inherit; color: inherit; }
 .status .r { display: flex; gap: 6px; align-items: center; font-size: 13px; }
 .batt { border: 1.5px solid currentColor; border-radius: 4px; padding: 0 3px; font-size: 11px; }
 .screen { position: absolute; inset: 0; padding-top: 54px; display: flex; flex-direction: column; }
-.bg-grad { background: radial-gradient(circle at 12% 6%, rgba(3,75,255,.42), transparent 38%), radial-gradient(circle at 95% 38%, rgba(79,125,255,.26), transparent 42%), radial-gradient(circle at 20% 88%, rgba(3,75,255,.22), transparent 40%), linear-gradient(var(--bg-top), var(--bg) 45%); }
+.bg-grad { background: linear-gradient(var(--bg-top), var(--bg) 220px); }
 .scroll { flex: 1; overflow-y: auto; overflow-x: hidden; scrollbar-width: none; }
 .scroll::-webkit-scrollbar { display: none; }
 .home-ind { position: absolute; bottom: 8px; left: 50%; transform: translateX(-50%); width: 134px; height: 5px; border-radius: 3px; background: rgba(255,255,255,.7); z-index: 50; pointer-events: none; }
@@ -70,26 +70,26 @@ input, textarea { font: inherit; color: inherit; }
 .row { display: flex; align-items: center; }
 .col { display: flex; flex-direction: column; }
 .grow { flex: 1; min-width: 0; }
-.circle-btn { width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; background: rgba(47,55,66,.85); box-shadow: inset 0 0 0 1px var(--hair); flex: none; }
+.circle-btn { width: 46px; height: 46px; border-radius: 50%; display: grid; place-items: center; flex: none; }
 .circle-btn.hl { box-shadow: inset 0 0 0 2px #fff; }
 .circle-btn svg { width: 20px; height: 20px; }
-.primary { height: 52px; border-radius: 26px; width: 100%; background: var(--cta-bg); color: var(--cta-fg); font-size: 17px; font-weight: 600; transition: transform .1s; }
+.primary { height: 54px; border-radius: 26px; width: 100%; background: var(--cta-bg); color: var(--cta-fg); font-size: 17px; font-weight: 600; transition: transform .1s; }
 .primary:active { transform: scale(.97); }
 .primary:disabled { opacity: .35; }
-.secondary { height: 48px; border-radius: 16px; flex: 1; background: var(--raised); font-size: 15px; font-weight: 500; display: flex; align-items: center; justify-content: center; gap: 6px; }
+.secondary { height: 52px; border-radius: 26px; flex: 1; background: var(--raised); font-size: 15px; font-weight: 500; display: flex; align-items: center; justify-content: center; gap: 6px; }
 .card { background: var(--card); border-radius: 24px; box-shadow: inset 0 0 0 1px var(--hair); }
 .card-alt { background: var(--card-alt); border-radius: 20px; box-shadow: inset 0 0 0 1px var(--hair); }
 .h-display { font-size: 28px; font-weight: 600; text-align: center; line-height: 1.2; text-wrap: balance; margin: 0; }
-.h-title { font-size: 20px; font-weight: 600; margin: 0; }
+.h-title { font-size: 18px; font-weight: 500; margin: 0; letter-spacing: -.005em; }
 .t-body { font-size: 15px; line-height: 1.45; }
 .t-cap { font-size: 13px; color: var(--text-2); line-height: 1.4; }
 .t-micro { font-size: 11px; font-weight: 500; }
 .muted { color: var(--text-2); }
-.seg { width: 180px; height: 44px; border-radius: 22px; padding: 4px; background: rgba(42,47,56,.9); box-shadow: inset 0 0 0 1px var(--hair); display: flex; position: relative; }
-.seg button { flex: 1; z-index: 1; font-size: 17px; font-weight: 500; color: var(--text-2); }
+.seg { width: 190px; height: 46px; border-radius: 23px; padding: 4px; display: flex; }
+.seg button { flex: 1; z-index: 1; font-size: 16px; font-weight: 500; color: var(--text-2); }
 .seg button[aria-pressed="true"] { color: var(--text); }
 .seg .thumb { position: absolute; top: 4px; bottom: 4px; width: calc(50% - 4px); border-radius: 18px; background: var(--seg-thumb); transition: transform .3s cubic-bezier(.3,1.2,.5,1); }
-.chip { height: 36px; padding: 0 18px; border-radius: 18px; background: rgba(47,55,66,.7); font-size: 16px; font-weight: 500; white-space: nowrap; flex: none; }
+.chip { height: 36px; padding: 0 16px; border-radius: 18px; background: #262C35; box-shadow: inset 0 0 0 1px var(--hair); font-size: 14px; font-weight: 500; white-space: nowrap; flex: none; }
 .subtabs { display: flex; gap: 8px; }
 .subtabs button { height: 30px; padding: 0 14px; border-radius: 15px; background: var(--card); font-size: 13px; font-weight: 500; color: var(--text-2); }
 .subtabs button[aria-pressed="true"] { background: var(--cta-bg); color: var(--cta-fg); }
@@ -97,14 +97,14 @@ input, textarea { font: inherit; color: inherit; }
 .badge.new { background: var(--badge-bg); color: var(--badge-fg); }
 .badge.free { box-shadow: inset 0 0 0 1px var(--text-3); color: var(--text-2); }
 .badge.pro { background: var(--cta-bg); color: var(--cta-fg); }
-.add { display: inline-grid; place-items: center; width: 64px; height: 30px; border-radius: 15px; background: var(--pill-add); color: var(--accent); font-size: 15px; font-weight: 500; flex: none; }
+.add { display: inline-grid; place-items: center; width: 62px; height: 28px; border-radius: 14px; background: var(--pill-add); color: var(--accent); font-size: 14px; font-weight: 500; flex: none; }
 .add.on { background: rgba(47,55,66,.6); color: var(--text-2); }
-.act-icon { border-radius: 50%; display: grid; place-items: center; flex: none; position: relative; color: #fff; box-shadow: inset 0 2px 6px rgba(255,255,255,.35); }
+.act-icon { border-radius: 50%; display: grid; place-items: center; flex: none; position: relative; line-height: 1; font-family: 'Apple Color Emoji','Segoe UI Emoji','Noto Color Emoji',sans-serif; box-shadow: inset 0 -3px 6px rgba(0,0,0,.08), inset 0 2px 3px rgba(255,255,255,.9), 0 2px 6px rgba(0,0,0,.25); }
 .act-icon svg { width: 46%; height: 46%; filter: drop-shadow(0 1px 1px rgba(0,0,0,.2)); }
-.act-row { display: flex; align-items: center; gap: 14px; height: 70px; width: 100%; text-align: left; position: relative; }
-.act-row .nm { font-size: 17px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.act-row { display: flex; align-items: center; gap: 14px; height: 72px; width: 100%; text-align: left; position: relative; }
+.act-row .nm { font-size: 16px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .act-row + .act-row::before { content: ""; position: absolute; top: 0; left: 62px; right: 0; height: 1px; background: var(--divider); }
-.orb { display: inline-block; vertical-align: middle; border-radius: 50%; position: relative; flex: none; background: conic-gradient(from 200deg, #9CC0FF, #034BFF, #5B7CFF, #BFD6FF, #2F6BFF, #9CC0FF); box-shadow: 0 0 24px rgba(3,75,255,.55); }
+.orb { display: inline-block; vertical-align: middle; border-radius: 50%; position: relative; flex: none; background: conic-gradient(from 200deg, #A8D8FF, #4E7BFF, #9B7CFF, #7FE3F0, #A8D8FF); box-shadow: 0 0 22px rgba(110,140,255,.45); }
 .orb::before { content: ""; position: absolute; inset: 0; border-radius: 50%; background: radial-gradient(circle at 25% 20%, rgba(255,255,255,.85), transparent 60%); }
 .orb::after { content: "✦"; position: absolute; inset: 27%; border-radius: 22%; background: rgba(255,255,255,.22); color: #fff; display: grid; place-items: center; font-size: 60%; }
 .orb.gray { filter: saturate(0); box-shadow: none; }
@@ -115,18 +115,19 @@ input, textarea { font: inherit; color: inherit; }
 .brand i.f { background: #fff; color: #000; } .brand i.o { background: rgba(255,255,255,.18); color: #fff; }
 .sgroup-title { font-size: 15px; font-weight: 500; color: var(--text-2); padding: 0 4px 8px; display: flex; justify-content: space-between; }
 .sgroup { background: var(--card); border-radius: 20px; box-shadow: inset 0 0 0 1px var(--hair); }
-.srow { display: flex; align-items: center; gap: 14px; padding: 14px 16px; min-height: 56px; width: 100%; text-align: left; position: relative; }
+.srow { display: flex; align-items: center; gap: 14px; padding: 12px 16px; min-height: 64px; width: 100%; text-align: left; position: relative; }
 .srow + .srow::before { content: ""; position: absolute; top: 0; left: 56px; right: 0; height: 1px; background: var(--divider); }
 .srow.noicon + .srow.noicon::before, .srow.noicon + .srow::before { left: 16px; }
-.srow .ic { width: 26px; display: grid; place-items: center; flex: none; }
-.srow .ic svg { width: 20px; height: 20px; }
-.srow .tt { font-size: 17px; font-weight: 500; }
+.srow .ic { width: 28px; display: grid; place-items: center; flex: none; }
+.srow .ic svg { width: 22px; height: 22px; }
+.srow .ic { color: #E9EDF3; } .srow .ic svg { fill: rgba(80,148,215,.42); } /* 録画の設定アイコンは白線 + 青の塗りの2色 */
+.srow .tt { font-size: 16px; font-weight: 400; }
 .srow .st { font-size: 13px; color: var(--text-2); margin-top: 2px; line-height: 1.35; }
 .chev { color: var(--text-3); display: flex; gap: 6px; align-items: center; font-size: 13px; }
 .chev span { color: var(--text-2); }
 .toggle { width: 51px; height: 31px; border-radius: 16px; background: #39393D; position: relative; flex: none; transition: background .2s; }
 .toggle::after { content: ""; position: absolute; top: 2px; left: 2px; width: 27px; height: 27px; border-radius: 50%; background: #fff; transition: transform .2s; box-shadow: 0 2px 4px rgba(0,0,0,.3); }
-.toggle[aria-checked="true"] { background: var(--accent); }
+.toggle[aria-checked="true"] { background: var(--toggle-on); }
 .toggle[aria-checked="true"]::after { transform: translateX(20px); }
 .toggle.green[aria-checked="true"] { background: var(--success); }
 .steps { padding: 16px; }
@@ -134,7 +135,7 @@ input, textarea { font: inherit; color: inherit; }
 .steps .lbls { display: flex; justify-content: space-between; font-size: 11px; color: var(--text-2); margin-top: 4px; }
 .steps .lbls b { color: var(--text); font-weight: 500; }
 .navh { height: 56px; display: grid; grid-template-columns: 44px 1fr 44px; align-items: center; padding: 0 16px; gap: 8px; flex: none; }
-.navh h2 { margin: 0; text-align: center; font-size: 18px; font-weight: 600; }
+.navh h2 { margin: 0; text-align: center; font-size: 17px; font-weight: 600; }
 .coach { background: #fff; color: #000; font-size: 13px; font-weight: 500; padding: 8px 12px; border-radius: 10px; box-shadow: 0 4px 16px rgba(0,0,0,.3); white-space: nowrap; }
 .hand { font-size: 32px; color: #8FB4FF; animation: tap 1.2s ease-in-out infinite; display: inline-block; filter: drop-shadow(0 2px 4px rgba(0,0,0,.3)); }
 @keyframes tap { 50% { transform: translateY(6px) scale(.92); } }
@@ -197,48 +198,62 @@ input, textarea { font: inherit; color: inherit; }
 .composer .send:disabled { background: var(--text-3); }
 
 /* hero */
-.hero { height: 200px; border-radius: 28px; overflow: hidden; position: relative; background: linear-gradient(var(--hero-a), var(--hero-b)); box-shadow: inset 0 0 0 1px rgba(255,255,255,.5); display: block; width: 100%; }
+.hero { height: 204px; border-radius: 28px; overflow: hidden; position: relative; display: block; width: 100%;
+  background: radial-gradient(120px 80px at 18% 30%, rgba(255,255,255,.7), transparent 70%), radial-gradient(160px 90px at 82% 22%, rgba(255,255,255,.55), transparent 70%), linear-gradient(170deg, #EEF1F7 0%, #D8DEEA 55%, #C5CEDF 100%);
+  box-shadow: inset 0 1px 1px rgba(255,255,255,.95), inset 0 0 0 1px rgba(255,255,255,.55); }
+.hero .plat { position: absolute; border-radius: 10px; background: linear-gradient(160deg, rgba(255,255,255,.85), rgba(210,218,232,.6)); box-shadow: 0 6px 14px rgba(80,95,130,.18); transform: skewX(-24deg) rotate(-6deg); }
 .hero .kbill { position: absolute; left: 0; right: 0; bottom: -18px; transform: perspective(380px) rotateX(28deg); color: #4A5568; display: flex; flex-direction: column; align-items: center; gap: 6px; }
 .hero .kbill .r { display: flex; gap: 6px; }
 .hero .kbill .r i { width: 22px; height: 26px; border-radius: 6px; background: rgba(255,255,255,.75); display: grid; place-items: center; font: 14px ui-rounded, var(--font); font-style: normal; }
 .hero .kbill .r.b i { background: rgba(255,255,255,.5); filter: blur(2px); }
 .hero .center { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding-bottom: 12px; }
-.hero .center b { color: #11161D; font-size: 26px; font-weight: 600; }
+.hero .center b { color: #11161D; font-size: 24px; font-weight: 600; letter-spacing: -.01em; }
 .hsec { display: flex; gap: 10px; overflow-x: auto; scroll-snap-type: x mandatory; padding: 0 12px; scrollbar-width: none; }
 .hsec::-webkit-scrollbar { display: none; }
 .hsec .card { flex: none; width: calc(100% - 48px); scroll-snap-align: start; padding: 6px 16px; }
-.composer-bar { position: absolute; left: 12px; right: 12px; bottom: 30px; height: 52px; border-radius: 26px; background: rgba(39,44,53,.85); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); box-shadow: inset 0 0 0 1px var(--hair); display: flex; align-items: center; gap: 10px; padding: 0 18px; font-size: 15px; color: var(--text-2); z-index: 5; text-align: left; }
+.composer-bar { position: absolute; left: 14px; right: 14px; bottom: 30px; height: 54px; border-radius: 27px; display: flex; align-items: center; gap: 10px; padding: 0 18px; font-size: 15px; color: var(--text-2); z-index: 5; text-align: left; }
 
-/* ---------- Liquid Glass ---------- */
-.circle-btn, .seg, .chip, .add, .composer-bar, .secondary, .kb-pill, .ta, .primary, .card, .card-alt, .sgroup, .subtabs button, .kb {
-  -webkit-backdrop-filter: blur(22px) saturate(185%); backdrop-filter: blur(22px) saturate(185%);
+
+/* ---------- Liquid Glass (iOS 26) ----------
+   使う場所は「内容の上に浮く操作レイヤー」だけ: 上部の丸ボタン・All/My・検索、下部の入力バー、詳細画面の Remix/Add。
+   カードやリスト (内容レイヤー) は不透明のまま。内容が下を流れて透けることでガラスに見える。 */
+.circle-btn, .seg, .float-bottom .secondary { position: relative; }
+.circle-btn, .seg, .composer-bar, .float-bottom .secondary {
+  isolation: isolate;
+  background: rgba(118, 128, 146, .14);
+  -webkit-backdrop-filter: blur(5px) saturate(180%) brightness(1.12); backdrop-filter: blur(5px) saturate(180%) brightness(1.12);
+  box-shadow:
+    inset 1px 1px 0 -.5px rgba(255,255,255,.55),
+    inset -1px -1px 0 -.5px rgba(255,255,255,.28),
+    inset 0 0 0 .5px rgba(255,255,255,.14),
+    inset 0 0 14px rgba(255,255,255,.04),
+    0 6px 20px rgba(0,0,0,.30);
+  transition: transform .35s cubic-bezier(.3,1.6,.45,1), filter .2s;
 }
-.circle-btn, .seg, .chip, .composer-bar, .secondary, .kb-pill, .subtabs button {
-  background: linear-gradient(180deg, rgba(255,255,255,.16), rgba(255,255,255,.05) 55%, rgba(255,255,255,.08)), rgba(28,34,46,.38);
-  box-shadow: inset 0 1px .5px rgba(255,255,255,.5), inset 0 -1px 1px rgba(255,255,255,.1), inset 0 0 0 1px rgba(255,255,255,.12), 0 8px 24px rgba(0,0,0,.28);
+.circle-btn::after, .seg::after, .composer-bar::after, .float-bottom .secondary::after {
+  content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; z-index: -1;
+  background: linear-gradient(140deg, rgba(255,255,255,.20), rgba(255,255,255,0) 38%, rgba(255,255,255,0) 72%, rgba(255,255,255,.07));
 }
-.circle-btn.hl { box-shadow: inset 0 1px .5px rgba(255,255,255,.6), inset 0 0 0 2px rgba(255,255,255,.9), 0 0 0 4px rgba(79,125,255,.35); }
-.card, .card-alt, .sgroup {
-  background: linear-gradient(180deg, rgba(255,255,255,.09), rgba(255,255,255,.025) 40%), rgba(22,28,38,.42);
-  box-shadow: inset 0 1px .5px rgba(255,255,255,.28), inset 0 0 0 1px rgba(255,255,255,.08), 0 10px 30px rgba(0,0,0,.25);
+.circle-btn:active, .composer-bar:active, .float-bottom .secondary:active { transform: scale(1.07); filter: brightness(1.18); }
+.circle-btn.hl { box-shadow: inset 0 0 0 1.5px rgba(255,255,255,.95), 0 0 0 3px rgba(255,255,255,.12), 0 6px 20px rgba(0,0,0,.3); }
+.seg .thumb { background: rgba(255,255,255,.20); box-shadow: inset 1px 1px 0 -.5px rgba(255,255,255,.6), inset 0 0 0 .5px rgba(255,255,255,.12); }
+.composer-bar { background: rgba(118,128,146,.12); }
+
+/* 浮く上部バー + スクロールエッジ効果 (内容が上に流れると柔らかくぼけて消える) */
+.float-top, .screen > .navh { position: absolute; top: 54px; left: 0; right: 0; z-index: 8; }
+.float-top::before, .screen > .navh::before, .float-bottom::before {
+  content: ""; position: absolute; left: 0; right: 0; z-index: -1; pointer-events: none;
+  -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
 }
-.seg .thumb { background: linear-gradient(180deg, rgba(255,255,255,.34), rgba(255,255,255,.12)); box-shadow: inset 0 1px .5px rgba(255,255,255,.7), 0 2px 8px rgba(0,0,0,.25); }
-.primary { color: #fff; background: linear-gradient(180deg, rgba(150,185,255,.55), rgba(3,75,255,.82) 60%, rgba(3,60,220,.9)); box-shadow: inset 0 1px 1px rgba(255,255,255,.65), inset 0 -2px 4px rgba(0,20,90,.35), inset 0 0 0 1px rgba(255,255,255,.18), 0 10px 28px rgba(3,75,255,.38); }
-.primary:disabled { opacity: .45; }
-.add { background: linear-gradient(180deg, rgba(120,160,255,.35), rgba(3,75,255,.25)); color: #CFE0FF; box-shadow: inset 0 1px .5px rgba(255,255,255,.5), inset 0 0 0 1px rgba(255,255,255,.12); }
-.add.on { background: rgba(255,255,255,.08); color: var(--text-2); box-shadow: inset 0 0 0 1px rgba(255,255,255,.1); }
-.subtabs button[aria-pressed="true"] { background: linear-gradient(180deg, rgba(150,185,255,.6), rgba(3,75,255,.85)); color: #fff; }
-.badge.new { background: rgba(3,75,255,.55); color: #fff; }
-.kb { background: var(--kb-bg); box-shadow: inset 0 1px .5px rgba(255,255,255,.25); }
-.key { box-shadow: inset 0 1px .5px rgba(255,255,255,.25), 0 1px 0 rgba(0,0,0,.25); }
-.ta { background: rgba(255,255,255,.07); box-shadow: inset 0 0 0 1px rgba(255,255,255,.08); }
-.ta button[aria-pressed="true"] { background: linear-gradient(180deg, rgba(255,255,255,.3), rgba(255,255,255,.12)); box-shadow: inset 0 1px .5px rgba(255,255,255,.6); }
-.panel .box { background: rgba(255,255,255,.08); box-shadow: inset 0 1px .5px rgba(255,255,255,.25), inset 0 0 0 1px rgba(255,255,255,.08); }
-.panel .btns button, .acts-grid button { background: linear-gradient(180deg, rgba(255,255,255,.2), rgba(255,255,255,.08)); box-shadow: inset 0 1px .5px rgba(255,255,255,.45); }
-.toggle[aria-checked="true"] { background: var(--brand); }
-.chat { background: radial-gradient(circle at 80% 92%, rgba(3,75,255,.35), transparent 45%), #000; }
-.hero { background: radial-gradient(circle at 70% 20%, rgba(255,255,255,.9), transparent 50%), linear-gradient(160deg, #EAF0FF, #B9CCFF 60%, #8FAEFF); box-shadow: inset 0 1px 1px rgba(255,255,255,.9), inset 0 0 0 1px rgba(255,255,255,.55), 0 14px 40px rgba(3,75,255,.3); }
-@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) { .kb { background: #26282E; } }
+.float-top::before, .screen > .navh::before { top: -54px; height: 140px; background: linear-gradient(var(--bg) 40%, rgba(17,22,29,0));
+  -webkit-mask-image: linear-gradient(#000 45%, transparent); mask-image: linear-gradient(#000 45%, transparent); }
+.screen.chat > .navh::before { display: none; }
+.under { padding-top: 66px; }
+.screen > .navh + .scroll, .screen > .navh + .grow { padding-top: 62px; }
+.float-bottom { position: absolute; left: 0; right: 0; bottom: 0; z-index: 8; }
+.float-bottom::before { bottom: 0; height: 190px; background: linear-gradient(rgba(17,22,29,0), var(--bg) 65%);
+  -webkit-mask-image: linear-gradient(transparent, #000 40%); mask-image: linear-gradient(transparent, #000 40%); }
+.pad-bottom { padding-bottom: 170px !important; }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
 </style>
 
@@ -301,30 +316,30 @@ const A = (id, name, summary, cat, uses, glyph, c1, c2, kind, extra = {}) => ({ 
 const AI = { id: 'ai', name: 'Shogun AI', summary: 'Ask anything right where you type.', cat: 'writing', uses: 0, kind: 'ai', author: 'ShogunAI Official', authorActs: 1, official: true, input: 'Text Entered', output: 'In-Place Replace', tools: [],
   overview: 'Write a question or a request in the current chat and trigger Shogun AI. It looks things up and puts the answer straight into the text field — no app switching, no copy and paste.' };
 const ACTS = [
-  A('translate', 'Translate Anything', 'Detects the source language and translates into the one you pick.', 'writing', 11800, '文', '#9BD3FF', '#4C7DFF', 'translate'),
-  A('restyle', 'Restyle Text', 'Rewrites any text in the style you choose.', 'writing', 9900, '✎', '#FFD6A5', '#B28DFF', 'restyle'),
-  A('polish', 'Polish Grammar', 'Fixes grammar, spelling and punctuation.', 'writing', 8700, '✓', '#C9E7FF', '#8FB8FF', 'polish'),
-  A('native', 'Sound Natural', 'Turns stiff or literal text into how a native speaker would say it.', 'writing', 10300, '❝', '#B8F2C8', '#5CC98A', 'native', { author: 'Mira Notes', authorActs: 11 }),
-  A('post', 'Draft a Post', 'Crafts a punchy, authentic short social post.', 'writing', 5500, '✍', '#FFC2C2', '#5C8DFF', 'post'),
-  A('prompt', 'Sharpen Prompt', 'Refines vague prompts into clear, structured ones.', 'writing', 8200, '≡', '#B6C8FF', '#3E5BD6', 'prompt'),
-  A('decode', 'Decode Any Language', 'Explains what a message in another language means.', 'understand', 8000, 'A', '#A7F3E8', '#4CB8D9', 'decode'),
-  A('explain', 'Explain Simply', 'Explains complex text in plain words.', 'understand', 8300, '💡', '#D3F8B5', '#5CC9A0', 'explain'),
-  A('keypoints', 'Key Points', 'Pulls out what matters from long text.', 'understand', 9700, '•', '#FFB4A2', '#E5484D', 'keypoints'),
-  A('warm', 'Warm Reply', 'Drafts a friendly, human-sounding reply.', 'reply', 6600, '☺', '#C5D9FF', '#7C9CFF', 'warm'),
-  A('charm', 'Charm Reply', 'Suggests a playful, charming reply.', 'reply', 8500, '♥', '#FFB3C1', '#FF5C7A', 'charm'),
-  A('office', 'Office Reply', 'Turns a quick note into a professional reply.', 'reply', 6000, '▣', '#FFE7A3', '#F0B429', 'office'),
-  A('meet', 'Instant Meet Link', 'Creates a video meeting link and drops it in the chat.', 'work', 5500, '▶', '#B5E3FF', '#4C9BFF', 'meet', { output: 'Append After', tools: ['Calendar'] }),
-  A('buddy', 'Language Buddy', 'Corrects your sentence and explains the fix.', 'work', 7300, '🎓', '#FFD1B3', '#E2725B', 'buddy'),
-  A('notes', 'Send to Notes', 'Saves the current text to your notes workspace.', 'work', 6200, '⇣', '#C8D7FF', '#5C7CFA', 'notes', { output: 'Copy to Clipboard', tools: ['Notes'] }),
-  A('emojify', 'Emojify', 'Adds fitting emoji to your text.', 'fun', 6100, '☻', '#FFF0A8', '#F5B700', 'emojify'),
-  A('lyrics', 'Song Lyrics', 'Turns your text into short song lyrics.', 'fun', 9600, '♪', '#E0E4EA', '#8A94A6', 'lyrics'),
-  A('luck', 'Daily Luck', 'A playful fortune for your day.', 'fun', 9700, '☾', '#D6C8FF', '#5B3FD6', 'luck'),
-  A('market', 'Market Pulse', 'Summarizes how the big tech names are doing (demo data).', 'finance', 8700, '▥', '#C9F5C9', '#3DBE6B', 'market'),
-  A('coin', 'Coin Watch', 'Quick snapshot of major coins (demo data).', 'finance', 9600, '₿', '#FFD8A8', '#F08C00', 'coin'),
-  A('stock', 'Stock Brief', 'A short brief on the ticker you type (demo data).', 'finance', 5700, '↗', '#C3FAE8', '#20C997', 'stock'),
-  A('trip', 'Trip Planner', 'Builds a one-day plan for the place you type.', 'travel', 4900, '✈', '#BDE0FE', '#3A86FF', 'trip'),
-  A('eats', 'Local Eats', 'Suggests places to eat nearby (demo data).', 'travel', 4100, '🍴', '#FFD6E0', '#FF6B6B', 'eats'),
-  A('pack', 'Packing List', 'Makes a packing list for your trip.', 'travel', 3800, '🧳', '#E9D8FD', '#9775FA', 'pack'),
+  A('translate', 'Translate Anything', 'Detects the source language and translates into the one you pick.', 'writing', 11800, '🌐', '#FFFFFF', '#DCEBFF', 'translate'),
+  A('restyle', 'Restyle Text', 'Rewrites any text in the style you choose.', 'writing', 9900, '🖋️', '#FFFFFF', '#F1E3FF', 'restyle'),
+  A('polish', 'Polish Grammar', 'Fixes grammar, spelling and punctuation.', 'writing', 8700, '📝', '#FFFFFF', '#E3F0FF', 'polish'),
+  A('native', 'Sound Natural', 'Turns stiff or literal text into how a native speaker would say it.', 'writing', 10300, '💬', '#FFFFFF', '#DFF7E8', 'native', { author: 'Mira Notes', authorActs: 11 }),
+  A('post', 'Draft a Post', 'Crafts a punchy, authentic short social post.', 'writing', 5500, '✍️', '#FFFFFF', '#FFE5E5', 'post'),
+  A('prompt', 'Sharpen Prompt', 'Refines vague prompts into clear, structured ones.', 'writing', 8200, '🎯', '#FFFFFF', '#E3E9FF', 'prompt'),
+  A('decode', 'Decode Any Language', 'Explains what a message in another language means.', 'understand', 8000, '🈂️', '#FFFFFF', '#DDF6F4', 'decode'),
+  A('explain', 'Explain Simply', 'Explains complex text in plain words.', 'understand', 8300, '💡', '#FFFFFF', '#FFF6D6', 'explain'),
+  A('keypoints', 'Key Points', 'Pulls out what matters from long text.', 'understand', 9700, '📌', '#FFFFFF', '#FFE6E0', 'keypoints'),
+  A('warm', 'Warm Reply', 'Drafts a friendly, human-sounding reply.', 'reply', 6600, '🤗', '#FFFFFF', '#FFF1D6', 'warm'),
+  A('charm', 'Charm Reply', 'Suggests a playful, charming reply.', 'reply', 8500, '😏', '#FFFFFF', '#FFE3EA', 'charm'),
+  A('office', 'Office Reply', 'Turns a quick note into a professional reply.', 'reply', 6000, '💼', '#FFFFFF', '#F5EAD9', 'office'),
+  A('meet', 'Instant Meet Link', 'Creates a video meeting link and drops it in the chat.', 'work', 5500, '📹', '#FFFFFF', '#DFF0FF', 'meet', { output: 'Append After', tools: ['Calendar'] }),
+  A('buddy', 'Language Buddy', 'Corrects your sentence and explains the fix.', 'work', 7300, '🎓', '#FFFFFF', '#E6E4FF', 'buddy'),
+  A('notes', 'Send to Notes', 'Saves the current text to your notes workspace.', 'work', 6200, '🗒️', '#FFFFFF', '#F0F2F5', 'notes', { output: 'Copy to Clipboard', tools: ['Notes'] }),
+  A('emojify', 'Emojify', 'Adds fitting emoji to your text.', 'fun', 6100, '😜', '#FFFFFF', '#FFF4C9', 'emojify'),
+  A('lyrics', 'Song Lyrics', 'Turns your text into short song lyrics.', 'fun', 9600, '🎵', '#FFFFFF', '#ECE6FF', 'lyrics'),
+  A('luck', 'Daily Luck', 'A playful fortune for your day.', 'fun', 9700, '🔮', '#FFFFFF', '#EEE2FF', 'luck'),
+  A('market', 'Market Pulse', 'Summarizes how the big tech names are doing (demo data).', 'finance', 8700, '📈', '#FFFFFF', '#E0F7E7', 'market'),
+  A('coin', 'Coin Watch', 'Quick snapshot of major coins (demo data).', 'finance', 9600, '🪙', '#FFFFFF', '#FFF0D2', 'coin'),
+  A('stock', 'Stock Brief', 'A short brief on the ticker you type (demo data).', 'finance', 5700, '📊', '#FFFFFF', '#E2F2FF', 'stock'),
+  A('trip', 'Trip Planner', 'Builds a one-day plan for the place you type.', 'travel', 4900, '✈️', '#FFFFFF', '#DFF0FF', 'trip'),
+  A('eats', 'Local Eats', 'Suggests places to eat nearby (demo data).', 'travel', 4100, '🍜', '#FFFFFF', '#FFE9DD', 'eats'),
+  A('pack', 'Packing List', 'Makes a packing list for your trip.', 'travel', 3800, '🧳', '#FFFFFF', '#F2E7DD', 'pack'),
 ];
 const CATS = ['translate', 'writing', 'understand', 'reply', 'work', 'fun', 'finance', 'travel'];
 const title = c => c[0].toUpperCase() + c.slice(1);
@@ -371,7 +386,7 @@ const phone = document.getElementById('phone');
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
 // ---------- small renderers ----------
-const actIcon = (a, s = 48) => a.id === 'ai' ? orb(s) : `<span class="act-icon" style="width:${s}px;height:${s}px;background:linear-gradient(135deg,${a.c1},${a.c2});font-size:${Math.round(s * .42)}px">${esc(a.glyph)}</span>`;
+const actIcon = (a, s = 48) => a.id === 'ai' ? orb(s) : `<span class="act-icon" style="width:${s}px;height:${s}px;background:radial-gradient(circle at 34% 28%, ${a.c1} 0%, ${a.c2} 62%, color-mix(in srgb, ${a.c2} 78%, #8A96B0) 100%);font-size:${Math.round(s * .5)}px">${esc(a.glyph)}</span>`;
 const orb = (s, cls = '') => `<span class="orb ${cls}" style="width:${s}px;height:${s}px;font-size:${s * .4}px" aria-hidden="true"></span>`;
 const LOGO = '<polygon points="758,203 585,458 758,730"/><polygon points="777,203 950,458 777,730"/><polygon points="287,302 567,468 737,730 464,594"/><polygon points="1249,302 969,468 799,730 1068,594"/><polygon points="460,616 622,697 350,818"/><polygon points="1075,616 914,697 1186,818"/>';
 const brand = (s = 40, color = 'var(--brand)') => `<svg viewBox="280 195 976 630" width="${s}" height="${Math.round(s * 630 / 976)}" fill="${color}" role="img" aria-label="ShogunAI logo">${LOGO}</svg>`;
@@ -386,7 +401,7 @@ const status = (dark = false) => `<div class="status"><span>9:41</span><span cla
 
 // ---------- screens ----------
 const V = {};
-V.intro = () => `<div class="screen bg-grad fadein"><div class="col" style="align-items:center;padding-top:40px;gap:20px"><span style="filter:drop-shadow(0 0 18px rgba(3,75,255,.7)) drop-shadow(0 0 2px rgba(255,255,255,.35))">${brand(88)}</span><h1 class="h-display">Your keys,<br>now with actions</h1></div>
+V.intro = () => `<div class="screen bg-grad fadein"><div class="col" style="align-items:center;padding-top:40px;gap:20px"><span style="filter:drop-shadow(0 0 14px rgba(3,75,255,.45))">${brand(76)}</span><h1 class="h-display">Your keys,<br>now with actions</h1></div>
   <div class="px" style="margin-top:28px">${introDemo()}</div><div style="flex:1"></div>
   <div class="px" style="padding-bottom:34px"><button class="primary" data-a="go" data-s="fullAccess">Enable ShogunAI Keyboard</button></div></div>`;
 let introBeat = 0;
@@ -551,15 +566,15 @@ function spaceDown(e, el) {
 // ---------- home ----------
 V.home = () => {
   const my = S.tab === 'my';
-  return `<div class="screen bg-grad fadein"><div class="row px" style="justify-content:space-between;padding-top:4px;padding-bottom:8px;position:relative;z-index:6">
+  return `<div class="screen bg-grad fadein"><div class="row px float-top" style="justify-content:space-between;padding-top:4px;padding-bottom:8px">
     <div style="position:relative">${circle('gear', 'openSettings', S.coachGear, 'Settings')}${S.coachGear ? '<div style="position:absolute;top:50px;left:0;display:flex;flex-direction:column;gap:4px;align-items:flex-start;pointer-events:none"><span class="hand" style="margin-left:10px">☝</span><span class="coach">More settings here</span></div>' : ''}</div>
     <div class="seg"><span class="thumb" style="transform:translateX(${my ? '100%' : '0'})"></span><button aria-pressed="${!my}" data-a="tab" data-t="all">All</button><button aria-pressed="${my}" data-a="tab" data-t="my">My</button></div>
     ${circle('search', 'noop', false, 'Search')}</div>
-    <div class="scroll" style="padding-bottom:100px">${my ? myList() : allList()}</div>
+    <div class="scroll under" style="padding-bottom:110px">${my ? myList() : allList()}</div>
     <button class="composer-bar" data-a="go" data-s="agent">${ic('sparkles', 18)}<span style="color:var(--text-2)">Describe an Act to build...</span></button></div>`;
 };
 function allList() {
-  return `<div class="px"><button class="hero" data-a="open" data-id="ai"><div class="kbill"><div class="r" style="font-size:10px;gap:14px;font-weight:500">✎ Type <span style="opacity:.5">✦ Act</span><span style="width:120px"></span>${ic('clip', 10)} ${ic('mic', 10)} Voice</div><div class="r">${[...'qwertyuiop'].map(c => `<i>${c}</i>`).join('')}</div><div class="r b">${'<i></i>'.repeat(9)}</div></div>
+  return `<div class="px"><button class="hero" data-a="open" data-id="ai"><span class="plat" style="left:22px;top:46px;width:70px;height:26px"></span><span class="plat" style="right:30px;top:30px;width:90px;height:30px"></span><span class="plat" style="right:-10px;top:96px;width:70px;height:22px;opacity:.7"></span><div class="kbill"><div class="r" style="font-size:10px;gap:14px;font-weight:500">✎ Type <span style="opacity:.5">✦ Act</span><span style="width:120px"></span>${ic('clip', 10)} ${ic('mic', 10)} Voice</div><div class="r">${[...'qwertyuiop'].map(c => `<i>${c}</i>`).join('')}</div><div class="r b">${'<i></i>'.repeat(9)}</div></div>
     <div class="center">${orb(72)}<b>Shogun AI</b></div><span style="position:absolute;left:14px;top:12px">${brand(30)}</span></button>
     <button class="card row" style="margin-top:16px;width:100%;height:72px;border-radius:20px;background:#1A2834;padding-right:14px;gap:12px;text-align:left" data-a="toast" data-m="Tips: hold space · swipe space · Act tab · assign keys · Voice">
       <span style="width:60px;display:grid;place-items:center;font-size:28px">💡</span><span class="grow"><div class="row" style="gap:6px"><span style="font-size:17px;font-weight:500">ShogunAI 101</span><span class="badge new">New</span></div><div class="t-cap">Tips for using the ShogunAI keyboard</div></span><span style="width:34px;height:34px;border-radius:50%;background:#fff;color:#11161D;display:grid;place-items:center">${ic('play', 13)}</span></button></div>
@@ -579,10 +594,10 @@ V.category = () => { const c = S.cat || 'writing', acts = byCat(c);
   return `<div class="screen bg-grad fadein">${navh(title(c))}<div class="scroll pxs">${acts.map(a => `<button class="act-row" style="height:auto;padding:12px 0" data-a="open" data-id="${a.id}">${actIcon(a)}<span class="grow"><div class="nm">${esc(a.name)}</div><div class="t-cap" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(a.summary)}</div></span></button>`).join('')}</div></div>`; };
 V.detail = () => { const a = findAct(S.detail || 'native'); const added = S.added.includes(a.id); const key = Object.entries(S.keys).find(([, v]) => v === a.id)?.[0];
   return `<div class="screen bg-grad fadein">${navh('', 'back', `<button class="circle-btn" data-a="assign" aria-label="Assign to key">${ic('more')}</button>`)}
-  ${S.loading ? `<div class="grow" style="display:grid;place-items:center">${orb(70, 'gray pulse')}</div>` : `<div class="scroll px col fadein" style="gap:12px"><h2 class="h-title" style="text-align:center;margin:4px 0 8px">${esc(a.name)}</h2>${authorCard(a, !a.official)}${overview(a.overview)}
+  ${S.loading ? `<div class="grow" style="display:grid;place-items:center">${orb(70, 'gray pulse')}</div>` : `<div class="scroll px col fadein pad-bottom" style="gap:12px"><h2 class="h-title" style="text-align:center;margin:4px 0 8px;font-size:19px">${esc(a.name)}</h2>${authorCard(a, !a.official)}${overview(a.overview)}
     <div class="card-alt" style="padding:14px"><div class="muted" style="font-size:15px;font-weight:500;margin-bottom:12px">Input &amp; Output</div>${[[a.input, 'Input'], [a.output, 'Output']].map(([t, tag]) => `<div class="row" style="gap:12px;margin-top:8px"><span style="width:36px;height:36px;border-radius:8px;box-shadow:inset 0 0 0 1px var(--hair);display:grid;place-items:center">${ic(tag === 'Input' ? 'keyboard' : 'shuffle', 16)}</span><span>${t}</span><span class="t-micro muted">${tag}</span></div>`).join('')}</div>
     ${key ? `<p class="t-cap" style="text-align:center">Long-press “${key.toUpperCase()}” on the keyboard to run this Act</p>` : ''}</div>`}
-  <div class="px col" style="gap:10px;padding-bottom:34px;padding-top:10px"><div class="row" style="gap:10px"><button class="secondary" data-a="go" data-s="agent">${ic('shuffle', 16)}Remix</button><button class="secondary" data-a="add" data-id="${a.id}" ${a.id === 'ai' ? 'disabled' : ''}>${ic(added ? 'check' : 'plusc', 16)}${added ? 'Added' : 'Add'}</button></div><button class="primary" data-a="tryit">Try It</button></div>
+  <div class="px col float-bottom" style="gap:12px;padding-bottom:34px;padding-top:10px"><div class="row" style="gap:12px"><button class="secondary" data-a="go" data-s="agent">${ic('shuffle', 16)}Remix</button><button class="secondary" data-a="add" data-id="${a.id}" ${a.id === 'ai' ? 'disabled' : ''}>${ic(added ? 'check' : 'plusc', 16)}${added ? 'Added' : 'Add'}</button></div><button class="primary" data-a="tryit">Try It</button></div>
   ${S.sheet === 'tryit' ? tryItSheet(a) : ''}${S.sheet === 'assign' ? assignSheet(a) : ''}</div>`; };
 const tryItSheet = a => `<div class="sheet-wrap"><div class="sheet"><div class="navh"><button data-a="closeSheet" style="color:var(--accent)">Close</button><h2>${esc(a.name)}</h2><span></span></div><div class="pxs col" style="gap:16px"><div class="muted" style="font-weight:500">Input</div>
   <textarea id="tryin" rows="4" class="card-alt" style="padding:14px;border:0;resize:none;border-radius:16px" aria-label="Input">${esc(S.tryIn ?? (a.kind === 'ai' ? 'Recent movies' : 'i think we should meet tomorrow to talk about the plan'))}</textarea>
